@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 import re
+from urllib.parse import urlparse
 
 from ..state import IngestState
 
@@ -17,8 +18,14 @@ def _as_list(v: Any) -> List[str]:
 
 
 def _is_drive_link(url: str) -> bool:
-    u = (url or "").lower()
-    return "drive.google.com" in u or "docs.google.com" in u
+    """
+    Return True if the given URL points to a Google Drive/Docs host.
+    """
+    if not url:
+        return False
+    parsed = urlparse(url)
+    host = (parsed.hostname or "").lower()
+    return host in ("drive.google.com", "docs.google.com")
 
 
 def resolve_sources_node(state: IngestState, glide_tables_cfg: Dict[str, Any]) -> IngestState:
