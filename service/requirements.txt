@@ -12,7 +12,7 @@ langgraph==1.0.9
 langchain-text-splitters==0.3.9
 
 # DB (either psycopg3 OR psycopg2 works; you wrote fallback logic)
-psycopg[binary]==3.2.5
+psycopg[binary]==3.3.3
 psycopg2-binary==2.9.9
 
 # File parsing
