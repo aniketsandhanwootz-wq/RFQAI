@@ -7,7 +7,7 @@ from ..vision_tool import GeminiVision
 
 from .pdf_extractor import extract_pdf
 from .xlsx_extractor import extract_xlsx
-from .csv_extractor import extract_csv
+from .csv_extractor import extract_csv_text
 from .image_extractor import extract_image
 from .pptx_extractor import extract_pptx
 from .docx_extractor import extract_docx
@@ -50,7 +50,7 @@ def route_extract(
         return Extracted(text=extract_docx(content, vision=vision, limits=limits), mime=mime)
 
     if fn.endswith(".csv") or m in ("text/csv", "application/csv"):
-        return Extracted(text=extract_csv(content), mime=mime)
+        return Extracted(text=extract_csv_text(content), mime=mime)
 
     if m.startswith("image/") or any(fn.endswith(ext) for ext in [".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff"]):
         return Extracted(text=extract_image(content, mime=mime, vision=vision), mime=mime)

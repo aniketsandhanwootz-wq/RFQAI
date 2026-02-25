@@ -16,7 +16,6 @@ langchain-text-splitters==1.1.1
 
 # DB drivers (your db_tool supports both)
 psycopg[binary]==3.2.5
-psycopg2-binary==2.9.11
 
 # File parsing
 PyMuPDF==1.24.14
