@@ -1,0 +1,26 @@
+dependencies:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "service/requirements.txt"
+          - "service/**"
+
+python:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "**/*.py"
+
+docs:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "docs/**"
+          - "**/*.md"
+
+migrations:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "packages/db/migrations/**"
+
+contracts:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "packages/contracts/**"
