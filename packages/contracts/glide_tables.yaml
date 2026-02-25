@@ -1,0 +1,77 @@
+app:
+  app_id: "ARzoymvBNIgO6RcvRk7l"
+
+tables:
+  all_products:
+    table_name: "native-table-4c42a6c4-6b7c-476f-88a8-65c0e8d3c774"
+    columns:
+      name: "Name"
+      qty: "KAbSp"
+      details: "K03pz"
+      target_price: "hgVgd"
+      rfq_id: "3E2xY"
+      dwg_link: "f4QCb"
+      rep_url: "LXcW2"
+      addl_photos: "kqjSP"
+      addl_files: "pXuAQ"
+      addl_files_internal: "JR0Lx"
+      product_photo: "SzA6G"
+      sr_no: "XbErc"
+      choice_all: "gpJEU"
+      archive: "x1TMO"
+
+  all_rfq:
+    table_name: "native-table-24696dcc-caaf-4bf8-a015-1e9ef394aa1b"
+    columns:
+      title: "QdiyR"
+      deadline: "r8pRq"
+      industry: "iUuzA"
+      geography: "2K6Rk"
+      standard: "7SDcI"
+      customer_name: "BietT"
+      quotation_folder_link: "Q5TZ2"
+      current_status: "6P9Ok"
+      team: "GAQgI"
+      required_by: "h3POw"
+      screen_url: "jRu0O"
+      color_queries: "VBIba"
+      archive: "oaHXQ"
+      received_date: "xbe3m"
+      rfq_created_date: "3Wgie"
+      created_by: "ioVbg"
+      sales_por: "DVjHx"
+      shared_members: "7Al4f"
+      rfq_poc: "epQFl"
+      last_updated_date: "bgA1V"
+      last_status_updated_by: "llMx5"
+      last_status_updated_at: "UhxMR"
+      last_status_comments: "DMSF2"
+      urgent: "LDBWr"
+
+  queries:
+    table_name: "native-table-b7ab100a-b580-4466-83be-ddc908015065"
+    columns:
+      comment: "Name"
+      query_type: "aU1EN"
+      user: "EzBHJ"
+      rfq: "iFLE0"
+      show_upload: "llvk7"
+      images_attached: "nv4km"
+      time_added: "Wwoqg"
+      status: "Br8cy"
+      products_selected: "kEf9q"
+      thread_id: "YLC4u"
+
+  supplier_shares:
+    table_name: "native-table-a3c75ad1-9bb9-4d95-a9c6-b8f17ac22acc"
+    columns:
+      supplier: "Name"
+      status: "EvClA"
+      shared_by: "FPYOF"
+      shared_products: "NoiXi"
+      shared_date: "SAZmO"
+      user_email: "hLuHa"
+      rfq_link: "1ojvw"
+      rfq: "fipwH"
+      quotation_shared_date: "yrhUA"
+      quotation_received_by: "bqSzl"

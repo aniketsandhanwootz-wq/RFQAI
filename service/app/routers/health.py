@@ -1,0 +1,10 @@
+# service/app/routers/health.py
+from __future__ import annotations
+
+from fastapi import APIRouter
+
+router = APIRouter()
+
+@router.get("/health")
+def health() -> dict:
+    return {"ok": True}
