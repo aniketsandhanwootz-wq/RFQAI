@@ -11,11 +11,11 @@ if str(ROOT) not in sys.path:
 
 from service.app.config import Settings
 from service.app.tools.db_tool import DB, apply_migrations, ping
-from service.app.pipeline.ingest_graph import run_ingest_phase2
+from service.app.pipeline.ingest_graph import run_ingest_full
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="RFQAI: ingest a single RFQ (Phase 2).")
+    ap = argparse.ArgumentParser(description="RFQAI: ingest a single RFQ (FULL pipeline).")
     ap.add_argument("--rfq_id", required=True, help="Glide ALL RFQ RowID (canonical RFQ id)")
     ap.add_argument("--migrate", action="store_true", help="Apply SQL migrations before running.")
     ap.add_argument(
@@ -33,7 +33,7 @@ def main() -> int:
         apply_migrations(db, args.migrations_dir)
     ping(db)
 
-    st = run_ingest_phase2(args.rfq_id, settings)
+    st = run_ingest_full(args.rfq_id, settings)
 
     if st.errors:
         print("[FAIL] errors:")
@@ -42,7 +42,18 @@ def main() -> int:
         return 2
 
     print(f"[OK] ingested rfq_id={args.rfq_id}")
-    print(f"  products={len(st.products_rows)} queries={len(st.queries_rows)} shares={len(st.shares_rows)} docs={len(st.docs)}")
+    print(
+        f"  products={len(st.products_rows)} "
+        f"queries={len(st.queries_rows)} "
+        f"shares={len(st.shares_rows)} "
+        f"docs={len(st.docs)} "
+        f"chunks={len(st.chunks)}"
+    )
+    if st.warnings:
+        print("[WARN] warnings (first 10):")
+        for w in st.warnings[:10]:
+            print(" -", w)
+
     return 0
 
 

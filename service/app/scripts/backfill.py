@@ -4,9 +4,7 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional
-
-import yaml
+from typing import Any, Dict, Optional
 
 ROOT = Path(__file__).resolve().parents[3]
 if str(ROOT) not in sys.path:
@@ -14,7 +12,7 @@ if str(ROOT) not in sys.path:
 
 from service.app.config import Settings
 from service.app.integrations.glide_client import GlideClient
-from service.app.pipeline.ingest_graph import run_ingest_phase2
+from service.app.pipeline.ingest_graph import run_ingest_full
 from service.app.tools.db_tool import DB, apply_migrations, ping
 
 
@@ -23,7 +21,7 @@ def _row_id(row: Dict[str, Any]) -> Optional[str]:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="RFQAI backfill (Phase 2).")
+    ap = argparse.ArgumentParser(description="RFQAI backfill (FULL pipeline).")
     ap.add_argument("--limit", type=int, default=0, help="Limit RFQs to first N (0 = all)")
     ap.add_argument("--migrate", action="store_true", help="Apply migrations before running")
     args = ap.parse_args()
@@ -36,6 +34,7 @@ def main() -> int:
         apply_migrations(db, ROOT / "packages" / "db" / "migrations")
     ping(db)
 
+    # Minimum calls: fetch tables once, then loop RFQs.
     glide = GlideClient(settings)
     tables = glide.fetch_all_4_tables()
     rfqs = tables["all_rfq"]
@@ -47,13 +46,13 @@ def main() -> int:
     ok = 0
     fail = 0
     for rfq_id in rfq_ids:
-        st = run_ingest_phase2(rfq_id, settings)
+        st = run_ingest_full(rfq_id, settings)
         if st.errors:
             fail += 1
             print(f"[FAIL] rfq_id={rfq_id} errors={st.errors[:2]}")
         else:
             ok += 1
-            print(f"[OK] rfq_id={rfq_id} products={len(st.products_rows)} queries={len(st.queries_rows)}")
+            print(f"[OK] rfq_id={rfq_id} products={len(st.products_rows)} queries={len(st.queries_rows)} chunks={len(st.chunks)}")
 
     print(f"[DONE] ok={ok} fail={fail} total={ok+fail}")
     return 0 if fail == 0 else 2
