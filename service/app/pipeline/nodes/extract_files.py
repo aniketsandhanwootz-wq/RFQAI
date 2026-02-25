@@ -1,13 +1,15 @@
 # service/app/pipeline/nodes/extract_files.py
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List
 import hashlib
+import os
 
 from ...config import Settings
 from ...integrations.drive_client import DriveClient
 from ...integrations.fetch_client import FetchClient
 from ...tools.db_tool import DB, tx
+from ...tools.vision_tool import GeminiVision
 from ...tools.file_extractors.router import route_extract
 from ..state import IngestState, TextDoc
 
@@ -16,16 +18,39 @@ def _sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def extract_files_node(state: IngestState, settings: Settings, db: DB, drive: DriveClient, fetcher: FetchClient) -> IngestState:
+def extract_files_node(
+    state: IngestState,
+    settings: Settings,
+    db: DB,
+    drive: DriveClient,
+    fetcher: FetchClient,
+) -> IngestState:
     """
     For each source target:
       - if Drive folder -> crawl recursively -> create rfq.files entries for files
       - download accessible files
-      - extract text with router
+      - extract text with router (text + vision)
       - emit TextDoc(doc_type=FILE_CHUNK) as a raw extracted doc (chunking later)
     """
     if not state.file_targets:
         return state
+
+    # limits from env (safe defaults)
+    limits = {
+        "MAX_FILE_MB": int(os.getenv("MAX_FILE_MB", str(settings.ingest_file_max_mb))),
+        "PDF_MAX_PAGES": int(os.getenv("PDF_MAX_PAGES", "120")),
+        "PDF_VISION_MAX_PAGES": int(os.getenv("PDF_VISION_MAX_PAGES", "12")),
+        "PDF_VISION_TEXT_THRESHOLD": int(os.getenv("PDF_VISION_TEXT_THRESHOLD", "40")),
+        "XLSX_VISION_MAX_IMAGES": int(os.getenv("XLSX_VISION_MAX_IMAGES", "10")),
+        "PPTX_VISION_MAX_IMAGES": int(os.getenv("PPTX_VISION_MAX_IMAGES", "10")),
+        "DOCX_VISION_MAX_IMAGES": int(os.getenv("DOCX_VISION_MAX_IMAGES", "10")),
+    }
+
+    vision = GeminiVision(
+        api_key=settings.gemini_api_key,
+        model=os.getenv("GEMINI_VISION_MODEL", "gemini-1.5-flash"),
+        timeout_sec=int(os.getenv("VISION_TIMEOUT_SEC", "90")),
+    )
 
     max_mb = settings.ingest_file_max_mb
     docs: List[TextDoc] = list(state.docs)
@@ -40,10 +65,7 @@ def extract_files_node(state: IngestState, settings: Settings, db: DB, drive: Dr
         source_kind = t.get("source_kind") or "DIRECT_URL"
 
         # ---- Drive handling (deep folder traversal) ----
-        if drive.enabled():
-            root_id = drive.resolve_root(url)
-        else:
-            root_id = None
+        root_id = drive.resolve_root(url) if drive.enabled() else None
 
         if root_id and drive.enabled():
             try:
@@ -52,8 +74,8 @@ def extract_files_node(state: IngestState, settings: Settings, db: DB, drive: Dr
                 state.warnings.append(f"Drive crawl failed for url={url}: {e}")
                 continue
 
-            # Insert folder/file inventory (skip folders in extraction stage)
             for it in items:
+                # inventory row
                 with tx(db) as cur:
                     cur.execute(
                         """
@@ -96,7 +118,7 @@ def extract_files_node(state: IngestState, settings: Settings, db: DB, drive: Dr
                 if it.is_folder:
                     continue
 
-                # Download file
+                # download
                 try:
                     content = drive.download(it.provider_id, max_mb=max_mb)
                 except Exception as e:
@@ -107,9 +129,15 @@ def extract_files_node(state: IngestState, settings: Settings, db: DB, drive: Dr
                     continue
 
                 checksum = _sha256(content)
-                extracted = route_extract(it.name, it.mime, content)
+
+                extracted = route_extract(
+                    filename=it.name,
+                    mime=it.mime,
+                    content=content,
+                    vision=vision,
+                    limits=limits,
+                )
                 if not extracted or not extracted.text.strip():
-                    # no extractable text is fine (images w/out OCR etc.)
                     continue
 
                 docs.append(
@@ -136,7 +164,6 @@ def extract_files_node(state: IngestState, settings: Settings, db: DB, drive: Dr
         # ---- Generic HTTP fetch ----
         fr = fetcher.fetch(url)
         if not fr or fr.status_code >= 400 or not fr.content:
-            # store as skipped (not fatal)
             with tx(db) as cur:
                 cur.execute(
                     """
@@ -165,7 +192,7 @@ def extract_files_node(state: IngestState, settings: Settings, db: DB, drive: Dr
                         "provider_id": url,
                         "name": (fr.filename if fr else ""),
                         "mime": (fr.content_type if fr else ""),
-                        "fetch_status": "FAILED" if fr else "FAILED",
+                        "fetch_status": "FAILED",
                         "error": f"http status {fr.status_code}" if fr else "fetch error",
                     },
                 )
@@ -173,7 +200,13 @@ def extract_files_node(state: IngestState, settings: Settings, db: DB, drive: Dr
 
         checksum = _sha256(fr.content)
 
-        extracted = route_extract(fr.filename, fr.content_type, fr.content)
+        extracted = route_extract(
+            filename=fr.filename,
+            mime=fr.content_type,
+            content=fr.content,
+            vision=vision,
+            limits=limits,
+        )
         if extracted and extracted.text.strip():
             docs.append(
                 TextDoc(

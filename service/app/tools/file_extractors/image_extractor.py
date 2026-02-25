@@ -1,9 +1,14 @@
-# service/app/tools/file_extractors/image_extractor.py
 from __future__ import annotations
 
-def extract_image_text(content: bytes) -> str:
-    """
-    Phase-3 minimal: no OCR dependency forced.
-    Later we’ll add OCR + vision caption pipeline.
-    """
-    return ""
+from typing import Optional
+
+from ..vision_tool import GeminiVision, load_prompt
+
+PROMPT_PATH = "packages/prompts/vision_extract_rich.md"
+
+
+def extract_image(content: bytes, *, mime: str, vision: Optional[GeminiVision]) -> str:
+    if not vision or not vision.enabled():
+        return ""
+    prompt = load_prompt(PROMPT_PATH)
+    return vision.analyze_image(prompt=prompt, image_bytes=content, mime=mime or "image/png").strip()
