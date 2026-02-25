@@ -1,0 +1,26 @@
+fastapi==0.115.8
+uvicorn[standard]==0.30.6
+
+pydantic==2.10.6
+pydantic-settings==2.7.1
+
+requests==2.32.3
+PyYAML==6.0.2
+python-dateutil==2.9.0.post0
+
+langgraph==0.2.62
+langchain-text-splitters==0.3.6
+
+# DB (either psycopg3 OR psycopg2 works; you wrote fallback logic)
+psycopg[binary]==3.2.5
+psycopg2-binary==2.9.9
+
+# File parsing
+PyMuPDF==1.24.14
+pdfplumber==0.11.5
+pypdf==5.1.0
+openpyxl==3.1.5
+
+# Google Drive (Phase 3)
+google-api-python-client==2.160.0
+google-auth==2.38.0
