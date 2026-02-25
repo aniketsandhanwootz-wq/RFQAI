@@ -1,13 +1,13 @@
 version: 2
 updates:
-  # Python (requirements.txt in /service)
+  # Python deps (requirements.txt in /service)
   - package-ecosystem: "pip"
     directory: "/service"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 10
 
-  # GitHub Actions (if you add workflows later)
+  # GitHub Actions (when workflows exist)
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
