@@ -5,7 +5,7 @@ pydantic==2.10.6
 pydantic-settings==2.7.1
 
 requests==2.32.4
-PyYAML==6.0.2
+PyYAML==6.0.3
 python-dateutil==2.9.0.post0
 
 langgraph==1.0.9
