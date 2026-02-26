@@ -14,6 +14,14 @@
 
 RFQAI is an enterprise-grade system for **intelligent RFQ document processing and semantic search**. It seamlessly integrates with **Glide CRM**, automatically extracts information from **multi-format documents**, and enables powerful **AI-driven search capabilities** using advanced embeddings and vector databases.
 
+### 🔄 Recent Updates
+- Enhanced file routing: MIME guessing and normalized filenames to improve extractor accuracy
+- Expanded image format support and smarter file type detection
+- Updated `requirements.txt` with newer LangChain ecosystem versions (see note in installation)
+- Added detailed ingestion readiness and architecture documentation
+
+
+
 ### What It Does ✅
 
 - **Glide CRM Sync**: Read 4 Glide tables (RFQs, products, queries, shares) and sync to PostgreSQL schema `rfq.*`
@@ -81,12 +89,13 @@ RFQAI is an enterprise-grade system for **intelligent RFQ document processing an
 
 | Feature | Details |
 |---------|---------|
-| **Multi-Format Support** | PDF, XLSX, CSV, DOCX, PPTX, PNG, JPG, WEBP + more |
+| **Multi-Format Support** | PDF, XLSX, CSV, DOCX, PPTX, PNG, JPG, WEBP + more (auto-detected via MIME/filename) |
 | **Vision Processing** | Gemini Vision for scanned docs, diagrams, and embedded images |
 | **Semantic Search** | pgvector indexing for fast similarity search |
 | **Glide Integration** | Real-time sync with Glide CRM tables |
 | **Google Drive** | Automatic file crawling and download |
 | **Idempotent** | Safe to re-run; handles duplicates gracefully |
+| **Smart Routing** | MIME type guessing and filename heuristics for accurate extractor selection |
 | **Configurable** | Chunk size, embedding dims, timeout, file limits all tunable |
 | **Production-Grade** | Full error handling, logging, transaction support |
 
@@ -118,6 +127,8 @@ source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 cd service
 pip install -U pip
 pip install -r requirements.txt
+# note: requirements include langgraph 0.2.62 and langchain-core 0.3.83
+# ensure compatibility when upgrading the LangChain ecosystem
 cd ..
 ```
 
