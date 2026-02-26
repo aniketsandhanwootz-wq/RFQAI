@@ -1,3 +1,4 @@
+# NOTE: ALL RFQ RowID (rowID) is treated as rfq_id (primary key) in Postgres.
 app:
   app_id: "ARzoymvBNIgO6RcvRk7l"
 

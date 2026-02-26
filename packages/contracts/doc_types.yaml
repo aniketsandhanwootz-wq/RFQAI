@@ -1,0 +1,5 @@
+doc_types:
+  - RFQ_BRIEF
+  - PRODUCT_CARD
+  - THREAD_MESSAGE
+  - FILE_CHUNK

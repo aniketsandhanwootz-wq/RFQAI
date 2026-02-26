@@ -57,7 +57,7 @@ def build_docs_node(state: IngestState, glide_tables_cfg: Dict[str, Any]) -> Ing
             rfq_id=state.rfq_id,
             title=_safe(rfq.get(rfq_cols["title"])) or f"RFQ {state.rfq_id}",
             text=rfq_text,
-            meta={"source": "glide:ALL_RFQ"},
+            meta={"source": "glide:ALL_RFQ", "rfq_id": state.rfq_id}
         )
     )
 
@@ -84,7 +84,7 @@ def build_docs_node(state: IngestState, glide_tables_cfg: Dict[str, Any]) -> Ing
                 product_id=pid or None,
                 title=_safe(p.get(prod_cols["name"])) or f"Product {pid}",
                 text=p_text,
-                meta={"source": "glide:ALL_PRODUCTS"},
+                meta={"source": "glide:ALL_PRODUCTS", "rfq_id": state.rfq_id, "product_id": pid}
             )
         )
 
@@ -112,7 +112,7 @@ def build_docs_node(state: IngestState, glide_tables_cfg: Dict[str, Any]) -> Ing
                 query_id=qid or None,
                 title=f"Query {qid}",
                 text=q_text,
-                meta={"source": "glide:QUERIES"},
+                meta={"source": "glide:QUERIES", "rfq_id": state.rfq_id, "query_id": qid}
             )
         )
 

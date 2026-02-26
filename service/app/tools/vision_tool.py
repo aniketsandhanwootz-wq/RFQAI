@@ -3,14 +3,24 @@ from __future__ import annotations
 import base64
 from dataclasses import dataclass
 from pathlib import Path
-
 import requests
 
 
+def repo_root() -> Path:
+    # service/app/tools/vision_tool.py -> repo root = parents[3]
+    return Path(__file__).resolve().parents[3]
+
+
 def load_prompt(path: str) -> str:
+    """
+    Load prompt from repo, robust to current working directory.
+    path is repo-relative, e.g. "packages/prompts/vision_extract_rich.md"
+    """
     p = Path(path)
+    if not p.is_absolute():
+        p = repo_root() / p
     if not p.exists():
-        raise FileNotFoundError(f"Prompt not found: {path}")
+        raise FileNotFoundError(f"Prompt not found: {p}")
     return p.read_text(encoding="utf-8").strip()
 
 
@@ -42,7 +52,11 @@ class GeminiVision:
             "generationConfig": {"temperature": 0.2, "maxOutputTokens": 1024},
         }
 
-        r = requests.post(url, json=payload, timeout=self.timeout_sec)
+        try:
+            r = requests.post(url, json=payload, timeout=self.timeout_sec)
+        except Exception:
+            return ""
+
         if r.status_code >= 400:
             return ""
 

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional, Tuple
+from typing import Optional
 import requests
 
 
@@ -20,16 +20,20 @@ class FetchClient:
         self.timeout_sec = timeout_sec
         self.max_bytes = max_mb * 1024 * 1024
         self._session = requests.Session()
+        self._session.headers.update({"User-Agent": "RFQAI/1.0"})
 
     def fetch(self, url: str) -> Optional[FetchResult]:
         url = (url or "").strip()
         if not url:
             return None
 
-        r = self._session.get(url, timeout=self.timeout_sec, stream=True, allow_redirects=True)
+        try:
+            r = self._session.get(url, timeout=self.timeout_sec, stream=True, allow_redirects=True)
+        except Exception:
+            return None
+
         ct = (r.headers.get("content-type") or "").split(";")[0].strip().lower()
 
-        # best-effort filename
         filename = ""
         cd = r.headers.get("content-disposition") or ""
         if "filename=" in cd:
@@ -48,7 +52,6 @@ class FetchClient:
             chunks.append(part)
             total += len(part)
             if total > self.max_bytes:
-                # refuse huge downloads
                 return FetchResult(url=url, status_code=413, content_type=ct, filename=filename, content=b"")
 
         return FetchResult(url=url, status_code=r.status_code, content_type=ct, filename=filename, content=b"".join(chunks))

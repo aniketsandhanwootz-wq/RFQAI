@@ -1,13 +1,13 @@
 # service/app/pipeline/nodes/extract_files.py
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 import hashlib
 import os
 
 from ...config import Settings
 from ...integrations.drive_client import DriveClient
-from ...integrations.fetch_client import FetchClient
+from ...integrations.fetch_client import FetchClient, FetchResult
 from ...tools.db_tool import DB, tx
 from ...tools.vision_tool import GeminiVision
 from ...tools.file_extractors.router import route_extract
@@ -18,6 +18,95 @@ def _sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def _upsert_file_row(
+    *,
+    db: DB,
+    rfq_id: str,
+    product_id: Optional[str],
+    query_id: Optional[str],
+    source_kind: str,
+    root_url: str,
+    provider: str,
+    provider_id: str,
+    is_folder: bool,
+    parent_provider_id: Optional[str],
+    path: str,
+    name: str,
+    mime: str,
+    size_bytes: Optional[int],
+    modified_at: Any,
+    checksum_sha256: Optional[str],
+    fetch_status: str,
+    parse_status: str,
+    error: Optional[str],
+) -> None:
+    """
+    Idempotent insert/update into rfq.files using unique key:
+    (rfq_id, provider, provider_id, is_folder, path)
+    """
+    with tx(db) as cur:
+        cur.execute(
+            """
+            INSERT INTO rfq.files (
+              rfq_id, product_id, query_id,
+              source_kind, root_url,
+              provider, provider_id,
+              is_folder, parent_provider_id, path, name, mime,
+              size_bytes, modified_at,
+              checksum_sha256,
+              fetch_status, parse_status, error,
+              ingested_at
+            )
+            VALUES (
+              %(rfq_id)s, %(product_id)s, %(query_id)s,
+              %(source_kind)s, %(root_url)s,
+              %(provider)s, %(provider_id)s,
+              %(is_folder)s, %(parent_provider_id)s, %(path)s, %(name)s, %(mime)s,
+              %(size_bytes)s, %(modified_at)s,
+              %(checksum_sha256)s,
+              %(fetch_status)s, %(parse_status)s, %(error)s,
+              now()
+            )
+            ON CONFLICT (rfq_id, provider, provider_id, is_folder, path) DO UPDATE SET
+              product_id=EXCLUDED.product_id,
+              query_id=EXCLUDED.query_id,
+              source_kind=EXCLUDED.source_kind,
+              root_url=EXCLUDED.root_url,
+              parent_provider_id=EXCLUDED.parent_provider_id,
+              name=EXCLUDED.name,
+              mime=EXCLUDED.mime,
+              size_bytes=EXCLUDED.size_bytes,
+              modified_at=EXCLUDED.modified_at,
+              checksum_sha256=COALESCE(EXCLUDED.checksum_sha256, rfq.files.checksum_sha256),
+              fetch_status=EXCLUDED.fetch_status,
+              parse_status=EXCLUDED.parse_status,
+              error=EXCLUDED.error,
+              ingested_at=now()
+            ;
+            """,
+            {
+                "rfq_id": rfq_id,
+                "product_id": product_id,
+                "query_id": query_id,
+                "source_kind": source_kind,
+                "root_url": root_url,
+                "provider": provider,
+                "provider_id": provider_id,
+                "is_folder": is_folder,
+                "parent_provider_id": parent_provider_id,
+                "path": path or "",
+                "name": name,
+                "mime": mime,
+                "size_bytes": size_bytes,
+                "modified_at": modified_at,
+                "checksum_sha256": checksum_sha256,
+                "fetch_status": fetch_status,
+                "parse_status": parse_status,
+                "error": error,
+            },
+        )
+
+
 def extract_files_node(
     state: IngestState,
     settings: Settings,
@@ -26,16 +115,13 @@ def extract_files_node(
     fetcher: FetchClient,
 ) -> IngestState:
     """
-    For each source target:
-      - if Drive folder -> crawl recursively -> create rfq.files entries for files
-      - download accessible files
-      - extract text with router (text + vision)
-      - emit TextDoc(doc_type=FILE_CHUNK) as a raw extracted doc (chunking later)
+    Cron-safe behavior:
+    - Always record a file row (even if inaccessible) with FAILED/SKIPPED status.
+    - On later runs, if it becomes accessible, the same row is updated to FETCHED/PARSED + checksum.
     """
     if not state.file_targets:
         return state
 
-    # limits from env (safe defaults)
     limits = {
         "MAX_FILE_MB": int(os.getenv("MAX_FILE_MB", str(settings.ingest_file_max_mb))),
         "PDF_MAX_PAGES": int(os.getenv("PDF_MAX_PAGES", "120")),
@@ -72,57 +158,83 @@ def extract_files_node(
                 items = drive.list_recursive(root_id, max_items=5000)
             except Exception as e:
                 state.warnings.append(f"Drive crawl failed for url={url}: {e}")
+                # record failure for the root link itself (so cron can retry later)
+                _upsert_file_row(
+                    db=db,
+                    rfq_id=state.rfq_id,
+                    product_id=product_id,
+                    query_id=query_id,
+                    source_kind=source_kind,
+                    root_url=url,
+                    provider="gdrive",
+                    provider_id=root_id,
+                    is_folder=True,
+                    parent_provider_id=None,
+                    path="",
+                    name="",
+                    mime="",
+                    size_bytes=None,
+                    modified_at=None,
+                    checksum_sha256=None,
+                    fetch_status="FAILED",
+                    parse_status="SKIPPED",
+                    error=str(e)[:500],
+                )
                 continue
 
             for it in items:
-                # inventory row
-                with tx(db) as cur:
-                    cur.execute(
-                        """
-                        INSERT INTO rfq.files (
-                          rfq_id, product_id, query_id,
-                          source_kind, root_url,
-                          provider, provider_id,
-                          is_folder, parent_provider_id, path, name, mime,
-                          size_bytes, modified_at,
-                          fetch_status, parse_status, ingested_at
-                        )
-                        VALUES (
-                          %(rfq_id)s, %(product_id)s, %(query_id)s,
-                          %(source_kind)s, %(root_url)s,
-                          'gdrive', %(provider_id)s,
-                          %(is_folder)s, %(parent_provider_id)s, %(path)s, %(name)s, %(mime)s,
-                          %(size_bytes)s, %(modified_at)s,
-                          'PENDING', 'PENDING', now()
-                        )
-                        ON CONFLICT DO NOTHING
-                        ;
-                        """,
-                        {
-                            "rfq_id": state.rfq_id,
-                            "product_id": product_id,
-                            "query_id": query_id,
-                            "source_kind": source_kind,
-                            "root_url": url,
-                            "provider_id": it.provider_id,
-                            "is_folder": it.is_folder,
-                            "parent_provider_id": it.parent_provider_id,
-                            "path": it.path,
-                            "name": it.name,
-                            "mime": it.mime,
-                            "size_bytes": it.size_bytes,
-                            "modified_at": it.modified_at,
-                        },
-                    )
+                # Always upsert inventory row
+                _upsert_file_row(
+                    db=db,
+                    rfq_id=state.rfq_id,
+                    product_id=product_id,
+                    query_id=query_id,
+                    source_kind=source_kind,
+                    root_url=url,
+                    provider="gdrive",
+                    provider_id=it.provider_id,
+                    is_folder=it.is_folder,
+                    parent_provider_id=it.parent_provider_id,
+                    path=it.path or "",
+                    name=it.name or "",
+                    mime=it.mime or "",
+                    size_bytes=it.size_bytes,
+                    modified_at=it.modified_at,
+                    checksum_sha256=None,
+                    fetch_status="PENDING",
+                    parse_status="PENDING",
+                    error=None,
+                )
 
                 if it.is_folder:
                     continue
 
-                # download
+                # Download
                 try:
                     content = drive.download(it.provider_id, max_mb=max_mb)
                 except Exception as e:
                     state.warnings.append(f"Drive download failed {it.path}: {e}")
+                    _upsert_file_row(
+                        db=db,
+                        rfq_id=state.rfq_id,
+                        product_id=product_id,
+                        query_id=query_id,
+                        source_kind=source_kind,
+                        root_url=url,
+                        provider="gdrive",
+                        provider_id=it.provider_id,
+                        is_folder=False,
+                        parent_provider_id=it.parent_provider_id,
+                        path=it.path or "",
+                        name=it.name or "",
+                        mime=it.mime or "",
+                        size_bytes=it.size_bytes,
+                        modified_at=it.modified_at,
+                        checksum_sha256=None,
+                        fetch_status="FAILED",
+                        parse_status="SKIPPED",
+                        error=str(e)[:500],
+                    )
                     continue
 
                 if not content:
@@ -137,65 +249,82 @@ def extract_files_node(
                     vision=vision,
                     limits=limits,
                 )
-                if not extracted or not extracted.text.strip():
-                    continue
 
-                docs.append(
-                    TextDoc(
-                        doc_type="FILE_CHUNK",
-                        rfq_id=state.rfq_id,
-                        product_id=product_id,
-                        query_id=query_id,
-                        title=it.path,
-                        text=extracted.text,
-                        meta={
-                            "provider": "gdrive",
-                            "provider_id": it.provider_id,
-                            "path": it.path,
-                            "mime": it.mime,
-                            "checksum_sha256": checksum,
-                            "source_kind": source_kind,
-                            "root_url": url,
-                        },
-                    )
+                # Update file row status with checksum even if text extraction returns empty
+                _upsert_file_row(
+                    db=db,
+                    rfq_id=state.rfq_id,
+                    product_id=product_id,
+                    query_id=query_id,
+                    source_kind=source_kind,
+                    root_url=url,
+                    provider="gdrive",
+                    provider_id=it.provider_id,
+                    is_folder=False,
+                    parent_provider_id=it.parent_provider_id,
+                    path=it.path or "",
+                    name=it.name or "",
+                    mime=it.mime or "",
+                    size_bytes=it.size_bytes,
+                    modified_at=it.modified_at,
+                    checksum_sha256=checksum,
+                    fetch_status="FETCHED",
+                    parse_status="PARSED" if (extracted and extracted.text.strip()) else "SKIPPED",
+                    error=None,
                 )
+
+                if extracted and extracted.text.strip():
+                    docs.append(
+                        TextDoc(
+                            doc_type="FILE_CHUNK",
+                            rfq_id=state.rfq_id,
+                            product_id=product_id,
+                            query_id=query_id,
+                            title=it.path,
+                            text=extracted.text,
+                            meta={
+                                "provider": "gdrive",
+                                "provider_id": it.provider_id,
+                                "path": it.path,
+                                "mime": it.mime,
+                                "checksum_sha256": checksum,
+                                "source_kind": source_kind,
+                                "root_url": url,
+                            },
+                        )
+                    )
             continue
 
         # ---- Generic HTTP fetch ----
-        fr = fetcher.fetch(url)
+        fr = None
+        try:
+            fr = fetcher.fetch(url)
+        except Exception as e:
+            fr = None
+            state.warnings.append(f"HTTP fetch exception url={url}: {e}")
+
         if not fr or fr.status_code >= 400 or not fr.content:
-            with tx(db) as cur:
-                cur.execute(
-                    """
-                    INSERT INTO rfq.files (
-                      rfq_id, product_id, query_id,
-                      source_kind, root_url,
-                      provider, provider_id,
-                      is_folder, name, mime,
-                      fetch_status, parse_status, error, ingested_at
-                    )
-                    VALUES (
-                      %(rfq_id)s, %(product_id)s, %(query_id)s,
-                      %(source_kind)s, %(root_url)s,
-                      'http', %(provider_id)s,
-                      false, %(name)s, %(mime)s,
-                      %(fetch_status)s, 'SKIPPED', %(error)s, now()
-                    )
-                    ;
-                    """,
-                    {
-                        "rfq_id": state.rfq_id,
-                        "product_id": product_id,
-                        "query_id": query_id,
-                        "source_kind": source_kind,
-                        "root_url": url,
-                        "provider_id": url,
-                        "name": (fr.filename if fr else ""),
-                        "mime": (fr.content_type if fr else ""),
-                        "fetch_status": "FAILED",
-                        "error": f"http status {fr.status_code}" if fr else "fetch error",
-                    },
-                )
+            _upsert_file_row(
+                db=db,
+                rfq_id=state.rfq_id,
+                product_id=product_id,
+                query_id=query_id,
+                source_kind=source_kind,
+                root_url=url,
+                provider="http",
+                provider_id=url,
+                is_folder=False,
+                parent_provider_id=None,
+                path=url,
+                name=(fr.filename if fr else ""),
+                mime=(fr.content_type if fr else ""),
+                size_bytes=None,
+                modified_at=None,
+                checksum_sha256=None,
+                fetch_status="FAILED",
+                parse_status="SKIPPED",
+                error=(f"http status {fr.status_code}" if fr else "fetch error")[:500],
+            )
             continue
 
         checksum = _sha256(fr.content)
@@ -207,6 +336,29 @@ def extract_files_node(
             vision=vision,
             limits=limits,
         )
+
+        _upsert_file_row(
+            db=db,
+            rfq_id=state.rfq_id,
+            product_id=product_id,
+            query_id=query_id,
+            source_kind=source_kind,
+            root_url=url,
+            provider="http",
+            provider_id=url,
+            is_folder=False,
+            parent_provider_id=None,
+            path=url,
+            name=fr.filename,
+            mime=fr.content_type,
+            size_bytes=len(fr.content),
+            modified_at=None,
+            checksum_sha256=checksum,
+            fetch_status="FETCHED",
+            parse_status="PARSED" if (extracted and extracted.text.strip()) else "SKIPPED",
+            error=None,
+        )
+
         if extracted and extracted.text.strip():
             docs.append(
                 TextDoc(

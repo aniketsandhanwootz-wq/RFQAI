@@ -134,7 +134,7 @@ CREATE TABLE IF NOT EXISTS rfq.supplier_shares (
 -- rfq.files  (Discovered via crawling links/attachments)
 -- Internal PK = uuid
 -- FK -> rfq.rfqs(rfq_id)
--- Optional FK-like refs to product/query via text IDs (not enforced)
+-- Idempotent key: (rfq_id, provider, provider_id, is_folder, path)
 -- =========================
 CREATE TABLE IF NOT EXISTS rfq.files (
   file_id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -147,11 +147,11 @@ CREATE TABLE IF NOT EXISTS rfq.files (
   root_url           text NOT NULL,
 
   provider           text NOT NULL, -- gdrive|http|glide_media|other
-  provider_id        text,          -- drive file/folder id etc.
+  provider_id        text NOT NULL, -- drive file/folder id or url (stable id)
 
   is_folder          boolean NOT NULL DEFAULT false,
   parent_provider_id text,
-  path               text,
+  path               text NOT NULL DEFAULT '',
   name               text,
   mime               text,
 
@@ -164,9 +164,10 @@ CREATE TABLE IF NOT EXISTS rfq.files (
   parse_status       text NOT NULL DEFAULT 'PENDING',
   error              text,
 
-  ingested_at        timestamptz NOT NULL DEFAULT now()
-);
+  ingested_at        timestamptz NOT NULL DEFAULT now(),
 
+  UNIQUE (rfq_id, provider, provider_id, is_folder, path)
+);
 -- =========================
 -- rfq.chunks  (Vectors stored here)
 -- Internal PK = uuid

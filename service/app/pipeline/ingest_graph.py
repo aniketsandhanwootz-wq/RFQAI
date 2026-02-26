@@ -1,7 +1,7 @@
 # service/app/pipeline/ingest_graph.py
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 import yaml
 from langgraph.graph import StateGraph, END
@@ -97,4 +97,49 @@ def run_ingest_full(rfq_id: str, settings: Settings) -> IngestState:
     graph = build_ingest_graph(settings)
     state = IngestState(rfq_id=rfq_id)
     out: IngestState = graph.invoke(state)
+    return out
+
+
+def run_ingest_full_prefetched(
+    rfq_id: str,
+    settings: Settings,
+    *,
+    prefetched_tables: Dict[str, List[Dict[str, Any]]],
+) -> IngestState:
+    """
+    Same as run_ingest_full, but avoids extra Glide API calls.
+    Used by cron/backfill to keep Glide costs minimal.
+    """
+    graph = build_ingest_graph(settings)
+
+    # Seed state with prefetched data so load_glide_node can be skipped
+    st = IngestState(rfq_id=rfq_id, prefetched=True)
+
+    # We will invoke graph starting from upsert_entities by manually calling nodes.
+    # This keeps changes minimal and avoids reworking LangGraph wiring.
+    # (Phase-3 uses same nodes after load_glide.)
+    from .nodes.load_glide import _row_id as _rid  # reuse helper
+    glide_cfg = _load_glide_cfg()
+    prod_col_rfq = glide_cfg["all_products"]["columns"]["rfq_id"]
+    q_col_rfq = glide_cfg["queries"]["columns"]["rfq"]
+    s_col_rfq = glide_cfg["supplier_shares"]["columns"]["rfq"]
+
+    rfq_row = None
+    for r in prefetched_tables["all_rfq"]:
+        if _rid(r) == rfq_id:
+            rfq_row = r
+            break
+    if not rfq_row:
+        st.errors.append(f"RFQ not found in prefetched ALL RFQ table for rfq_id={rfq_id}")
+        return st
+
+    st.rfq_row = rfq_row
+    st.products_rows = [p for p in prefetched_tables["all_products"] if str(p.get(prod_col_rfq, "")).strip() == rfq_id]
+    st.queries_rows = [q for q in prefetched_tables["queries"] if str(q.get(q_col_rfq, "")).strip() == rfq_id]
+    st.shares_rows = [s for s in prefetched_tables["supplier_shares"] if str(s.get(s_col_rfq, "")).strip() == rfq_id]
+
+    # Now run the rest of the graph by invoking compiled graph with seeded state.
+    # Because load_glide_node is first node, we will just call run_ingest_full on a graph variant later.
+    # Minimal: call build_ingest_graph but override load_glide behavior by already having rfq_row.
+    out: IngestState = graph.invoke(st)
     return out

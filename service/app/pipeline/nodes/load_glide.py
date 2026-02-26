@@ -1,7 +1,7 @@
 # service/app/pipeline/nodes/load_glide.py
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from ...integrations.glide_client import GlideClient
 from ..state import IngestState
@@ -14,11 +14,13 @@ def _row_id(row: Dict[str, Any]) -> Optional[str]:
 
 def load_glide_node(state: IngestState, glide: GlideClient) -> IngestState:
     """
-    Fetch all 4 tables (bulk) then filter in Python by rfq_id (ALL RFQ RowID).
-    This keeps Glide calls minimal.
+    If state already has rfq_row (prefetched mode), do NOT call Glide again.
+    Otherwise fetch all 4 tables once and filter by rfq_id.
     """
-    tables = glide.fetch_all_4_tables()
+    if state.prefetched or state.rfq_row is not None:
+        return state
 
+    tables = glide.fetch_all_4_tables()
     rfq_id = state.rfq_id
 
     rfqs = tables["all_rfq"]
@@ -26,7 +28,6 @@ def load_glide_node(state: IngestState, glide: GlideClient) -> IngestState:
     queries = tables["queries"]
     shares = tables["supplier_shares"]
 
-    # find RFQ row by rowID
     rfq_row = None
     for r in rfqs:
         if _row_id(r) == rfq_id:
@@ -36,20 +37,12 @@ def load_glide_node(state: IngestState, glide: GlideClient) -> IngestState:
         state.errors.append(f"RFQ not found in ALL RFQ table for rfq_id={rfq_id}")
         return state
 
-    # product rows: column 3E2xY stores rfq id
     prod_col_rfq = glide.tables["all_products"]["columns"]["rfq_id"]
-    products_rows = [p for p in products if str(p.get(prod_col_rfq, "")).strip() == rfq_id]
-
-    # queries rows: column iFLE0 stores RFQ relation/id
     q_col_rfq = glide.tables["queries"]["columns"]["rfq"]
-    queries_rows = [q for q in queries if str(q.get(q_col_rfq, "")).strip() == rfq_id]
-
-    # share rows: column fipwH stores RFQ
     s_col_rfq = glide.tables["supplier_shares"]["columns"]["rfq"]
-    shares_rows = [s for s in shares if str(s.get(s_col_rfq, "")).strip() == rfq_id]
 
     state.rfq_row = rfq_row
-    state.products_rows = products_rows
-    state.queries_rows = queries_rows
-    state.shares_rows = shares_rows
+    state.products_rows = [p for p in products if str(p.get(prod_col_rfq, "")).strip() == rfq_id]
+    state.queries_rows = [q for q in queries if str(q.get(q_col_rfq, "")).strip() == rfq_id]
+    state.shares_rows = [s for s in shares if str(s.get(s_col_rfq, "")).strip() == rfq_id]
     return state

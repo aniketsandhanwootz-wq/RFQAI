@@ -1,4 +1,3 @@
-# service/app/pipeline/state.py
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -14,7 +13,7 @@ class TextDoc:
     rfq_id: str
     product_id: Optional[str] = None
     query_id: Optional[str] = None
-    file_id: Optional[str] = None  # uuid string later
+    file_id: Optional[str] = None
     title: str = ""
     text: str = ""
     meta: Dict[str, Any] = field(default_factory=dict)
@@ -40,19 +39,18 @@ class Chunk:
 class IngestState:
     rfq_id: str
 
-    # Raw data placeholders (Phase 2)
+    # If True, load_glide_node must NOT call Glide
+    prefetched: bool = False
+
     rfq_row: Optional[Dict[str, Any]] = None
     products_rows: List[Dict[str, Any]] = field(default_factory=list)
     queries_rows: List[Dict[str, Any]] = field(default_factory=list)
     shares_rows: List[Dict[str, Any]] = field(default_factory=list)
 
-    # File targets/extractions placeholders (Phase 3)
     file_targets: List[Dict[str, Any]] = field(default_factory=list)
 
-    # Derived docs/chunks
     docs: List[TextDoc] = field(default_factory=list)
     chunks: List[Chunk] = field(default_factory=list)
 
-    # Diagnostics
     warnings: List[str] = field(default_factory=list)
     errors: List[str] = field(default_factory=list)

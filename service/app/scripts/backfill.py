@@ -12,7 +12,7 @@ if str(ROOT) not in sys.path:
 
 from service.app.config import Settings
 from service.app.integrations.glide_client import GlideClient
-from service.app.pipeline.ingest_graph import run_ingest_full
+from service.app.pipeline.ingest_graph import run_ingest_full_prefetched
 from service.app.tools.db_tool import DB, apply_migrations, ping
 
 
@@ -46,7 +46,7 @@ def main() -> int:
     ok = 0
     fail = 0
     for rfq_id in rfq_ids:
-        st = run_ingest_full(rfq_id, settings)
+        st = st = run_ingest_full_prefetched(rfq_id, settings, prefetched_tables=tables)
         if st.errors:
             fail += 1
             print(f"[FAIL] rfq_id={rfq_id} errors={st.errors[:2]}")

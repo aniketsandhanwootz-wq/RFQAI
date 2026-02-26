@@ -24,8 +24,8 @@ CREATE INDEX IF NOT EXISTS idx_rfq_supplier_shares_rfq_id
 CREATE INDEX IF NOT EXISTS idx_rfq_files_rfq_id
   ON rfq.files (rfq_id);
 
-CREATE INDEX IF NOT EXISTS idx_rfq_files_provider_provider_id
-  ON rfq.files (provider, provider_id);
+CREATE INDEX IF NOT EXISTS idx_rfq_files_identity
+  ON rfq.files (rfq_id, provider, provider_id, is_folder, path);
 
 CREATE INDEX IF NOT EXISTS idx_rfq_files_fetch_status
   ON rfq.files (fetch_status);
