@@ -10,11 +10,12 @@ requests==2.32.5
 PyYAML==6.0.2
 python-dateutil==2.9.0.post0
 
-# LangChain ecosystem
+# LangChain ecosystem (compatible set)
 langgraph==0.2.62
-langchain-text-splitters==1.1.1
+langchain-core==0.3.83
+langchain-text-splitters==0.3.11
 
-# DB drivers (your db_tool supports both)
+# DB driver
 psycopg[binary]==3.2.5
 
 # File parsing
