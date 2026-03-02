@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 from datetime import datetime
+import json
 
 from dateutil import parser as dtparser
 
@@ -12,7 +13,7 @@ from ..state import IngestState
 
 
 def _row_id(row: Dict[str, Any]) -> Optional[str]:
-    return row.get("rowID") or row.get("RowID") or row.get("id")
+    return row.get("$rowID") or row.get("rowID") or row.get("RowID") or row.get("id")
 
 
 def _to_bool(v: Any) -> Optional[bool]:
@@ -54,6 +55,10 @@ def _to_json_list(v: Any) -> list:
         return [x.strip() for x in s.split(",") if x.strip()]
     return [s]
 
+
+def _to_jsonb(v: Any) -> str:
+    return json.dumps(v, ensure_ascii=True, separators=(",", ":"), sort_keys=True, default=str)
+
 def upsert_entities_node(state: IngestState, db: DB, glide_tables_cfg: Dict[str, Any]) -> IngestState:
     """
     Upsert 4 entity tables into rfq.*.
@@ -89,9 +94,9 @@ def upsert_entities_node(state: IngestState, db: DB, glide_tables_cfg: Dict[str,
               %(folder)s, %(screen)s, %(color)s,
               %(status)s, %(team)s, %(required_by)s,
               %(archive)s, %(received)s, %(created_date)s,
-              %(created_by)s, %(sales_por)s, %(shared_members)s, %(rfq_poc)s,
+              %(created_by)s, %(sales_por)s, %(shared_members)s::jsonb, %(rfq_poc)s,
               %(last_by)s, %(last_at)s, %(last_comments)s, %(urgent)s,
-              %(raw)s, %(source_updated_at)s, now()
+              %(raw)s::jsonb, %(source_updated_at)s, now()
             )
             ON CONFLICT (rfq_id) DO UPDATE SET
               title=EXCLUDED.title,
@@ -141,13 +146,13 @@ def upsert_entities_node(state: IngestState, db: DB, glide_tables_cfg: Dict[str,
                 "created_date": _to_ts(rfq.get(rfq_cols["rfq_created_date"])),
                 "created_by": rfq.get(rfq_cols["created_by"]),
                 "sales_por": rfq.get(rfq_cols["sales_por"]),
-                "shared_members": _to_json_list(rfq.get(rfq_cols["shared_members"])),
+                "shared_members": _to_jsonb(_to_json_list(rfq.get(rfq_cols["shared_members"]))),
                 "rfq_poc": rfq.get(rfq_cols["rfq_poc"]),
                 "last_by": rfq.get(rfq_cols["last_status_updated_by"]),
                 "last_at": _to_ts(rfq.get(rfq_cols["last_status_updated_at"])),
                 "last_comments": rfq.get(rfq_cols["last_status_comments"]),
                 "urgent": _to_bool(rfq.get(rfq_cols["urgent"])),
-                "raw": rfq,
+                "raw": _to_jsonb(rfq),
                 "source_updated_at": _to_ts(rfq.get(rfq_cols.get("last_updated_date", ""))),
             },
         )
@@ -190,9 +195,9 @@ def upsert_entities_node(state: IngestState, db: DB, glide_tables_cfg: Dict[str,
                   %(name)s, %(qty)s, %(qty_raw)s, %(details)s,
                   %(tp)s, %(tp_raw)s,
                   %(dwg)s, %(rep)s,
-                  %(photos)s, %(files)s, %(files_internal)s, %(photo)s,
-                  %(sr_no)s, %(choice_all)s, %(archive)s,
-                  %(raw)s, %(source_updated_at)s, now()
+                  %(photos)s::jsonb, %(files)s::jsonb, %(files_internal)s::jsonb, %(photo)s::jsonb,
+                  %(sr_no)s, %(choice_all)s::jsonb, %(archive)s,
+                  %(raw)s::jsonb, %(source_updated_at)s, now()
                 )
                 ON CONFLICT (product_id) DO UPDATE SET
                   rfq_id=EXCLUDED.rfq_id,
@@ -227,14 +232,14 @@ def upsert_entities_node(state: IngestState, db: DB, glide_tables_cfg: Dict[str,
                     "tp_raw": None if tp_raw is None else str(tp_raw),
                     "dwg": p.get(prod_cols["dwg_link"]),
                     "rep": p.get(prod_cols["rep_url"]),
-                    "photos": p.get(prod_cols["addl_photos"]) or [],
-                    "files": p.get(prod_cols["addl_files"]) or [],
-                    "files_internal": p.get(prod_cols["addl_files_internal"]) or {},
-                    "photo": p.get(prod_cols["product_photo"]) or [],
+                    "photos": _to_jsonb(p.get(prod_cols["addl_photos"]) or []),
+                    "files": _to_jsonb(p.get(prod_cols["addl_files"]) or []),
+                    "files_internal": _to_jsonb(p.get(prod_cols["addl_files_internal"]) or {}),
+                    "photo": _to_jsonb(p.get(prod_cols["product_photo"]) or []),
                     "sr_no": p.get(prod_cols["sr_no"]),
-                    "choice_all": p.get(prod_cols["choice_all"]) or {},
+                    "choice_all": _to_jsonb(p.get(prod_cols["choice_all"]) or {}),
                     "archive": _to_bool(p.get(prod_cols["archive"])),
-                    "raw": p,
+                    "raw": _to_jsonb(p),
                     "source_updated_at": None,
                 },
             )
@@ -260,8 +265,8 @@ def upsert_entities_node(state: IngestState, db: DB, glide_tables_cfg: Dict[str,
                   %(query_id)s, %(rfq_id)s,
                   %(thread_id)s, %(query_type)s, %(comment)s, %(user)s,
                   %(time_added)s, %(status)s, %(show_upload)s,
-                  %(images)s, %(products)s,
-                  %(raw)s, %(source_updated_at)s, now()
+                  %(images)s::jsonb, %(products)s::jsonb,
+                  %(raw)s::jsonb, %(source_updated_at)s, now()
                 )
                 ON CONFLICT (query_id) DO UPDATE SET
                   rfq_id=EXCLUDED.rfq_id,
@@ -289,9 +294,9 @@ def upsert_entities_node(state: IngestState, db: DB, glide_tables_cfg: Dict[str,
                     "time_added": _to_ts(q.get(q_cols["time_added"])),
                     "status": q.get(q_cols["status"]),
                     "show_upload": _to_bool(q.get(q_cols["show_upload"])),
-                    "images": q.get(q_cols["images_attached"]) or [],
-                    "products": q.get(q_cols["products_selected"]) or [],
-                    "raw": q,
+                    "images": _to_jsonb(q.get(q_cols["images_attached"]) or []),
+                    "products": _to_jsonb(q.get(q_cols["products_selected"]) or []),
+                    "raw": _to_jsonb(q),
                     "source_updated_at": None,
                 },
             )
@@ -315,8 +320,8 @@ def upsert_entities_node(state: IngestState, db: DB, glide_tables_cfg: Dict[str,
                 VALUES (
                   %(share_id)s, %(rfq_id)s,
                   %(supplier)s, %(status)s, %(shared_by)s, %(email)s, %(rfq_link)s,
-                  %(shared_products)s, %(shared_date)s, %(q_shared_date)s, %(q_received_by)s,
-                  %(raw)s, %(source_updated_at)s, now()
+                  %(shared_products)s::jsonb, %(shared_date)s, %(q_shared_date)s, %(q_received_by)s,
+                  %(raw)s::jsonb, %(source_updated_at)s, now()
                 )
                 ON CONFLICT (share_id) DO UPDATE SET
                   rfq_id=EXCLUDED.rfq_id,
@@ -342,11 +347,11 @@ def upsert_entities_node(state: IngestState, db: DB, glide_tables_cfg: Dict[str,
                     "shared_by": s.get(s_cols["shared_by"]),
                     "email": s.get(s_cols["user_email"]),
                     "rfq_link": s.get(s_cols["rfq_link"]),
-                    "shared_products": s.get(s_cols["shared_products"]) or [],
+                    "shared_products": _to_jsonb(s.get(s_cols["shared_products"]) or []),
                     "shared_date": _to_ts(s.get(s_cols["shared_date"])),
                     "q_shared_date": _to_ts(s.get(s_cols["quotation_shared_date"])),
                     "q_received_by": s.get(s_cols["quotation_received_by"]),
-                    "raw": s,
+                    "raw": _to_jsonb(s),
                     "source_updated_at": None,
                 },
             )

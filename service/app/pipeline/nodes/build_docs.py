@@ -7,7 +7,7 @@ from ..state import IngestState, TextDoc
 
 
 def _row_id(row: Dict[str, Any]) -> Optional[str]:
-    return row.get("rowID") or row.get("RowID") or row.get("id")
+    return row.get("$rowID") or row.get("rowID") or row.get("RowID") or row.get("id")
 
 
 def _safe(v: Any) -> str:

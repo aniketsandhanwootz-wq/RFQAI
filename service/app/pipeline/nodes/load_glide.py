@@ -8,8 +8,8 @@ from ..state import IngestState
 
 
 def _row_id(row: Dict[str, Any]) -> Optional[str]:
-    # Glide row id key is usually "rowID" (sometimes "RowID")
-    return row.get("rowID") or row.get("RowID") or row.get("id")
+    # Glide row id is usually "$rowID" (older payloads may use rowID/RowID/id)
+    return row.get("$rowID") or row.get("rowID") or row.get("RowID") or row.get("id")
 
 
 def load_glide_node(state: IngestState, glide: GlideClient) -> IngestState:

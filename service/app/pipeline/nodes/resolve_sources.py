@@ -53,7 +53,7 @@ def resolve_sources_node(state: IngestState, glide_tables_cfg: Dict[str, Any]) -
 
     # Product sources
     for p in state.products_rows:
-        pid = p.get("rowID") or p.get("RowID") or p.get("id")
+        pid = p.get("$rowID") or p.get("rowID") or p.get("RowID") or p.get("id")
 
         dwg = _norm_url(p.get(prod_cols["dwg_link"]) or "")
         rep = _norm_url(p.get(prod_cols["rep_url"]) or "")
@@ -82,7 +82,7 @@ def resolve_sources_node(state: IngestState, glide_tables_cfg: Dict[str, Any]) -
 
     # Query attachment sources
     for q in state.queries_rows:
-        qid = q.get("rowID") or q.get("RowID") or q.get("id")
+        qid = q.get("$rowID") or q.get("rowID") or q.get("RowID") or q.get("id")
         for u in _as_list(q.get(q_cols["images_attached"])):
             u = _norm_url(u)
             if u:

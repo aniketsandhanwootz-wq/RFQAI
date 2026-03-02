@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Sequence
+import json
 
 from .db_tool import DB, tx
 from ..pipeline.state import Chunk
@@ -126,7 +127,7 @@ class VectorWriter:
                       %(rfq_id)s, %(doc_type)s,
                       %(product_id)s, %(query_id)s, %(file_id)s,
                       %(page_num)s, %(chunk_idx)s,
-                      %(content_text)s, %(content_sha)s, %(meta)s, (%(embedding)s)::vector,
+                      %(content_text)s, %(content_sha)s, %(meta)s::jsonb, (%(embedding)s)::vector,
                       now()
                     )
                     ON CONFLICT (rfq_id, doc_type, content_sha) DO NOTHING
@@ -142,7 +143,7 @@ class VectorWriter:
                         "chunk_idx": c.chunk_idx,
                         "content_text": c.content_text,
                         "content_sha": c.content_sha,
-                        "meta": c.meta or {},
+                        "meta": json.dumps(c.meta or {}, ensure_ascii=True, separators=(",", ":"), sort_keys=True, default=str),
                         "embedding": _vector_literal(c.embedding),
                     },
                 )

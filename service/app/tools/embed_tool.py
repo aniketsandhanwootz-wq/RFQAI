@@ -19,13 +19,19 @@ class Embedder:
         if not self.api_key:
             raise RuntimeError("GEMINI_API_KEY is missing")
 
+        model_name = (self.model or "").strip()
+        if model_name.startswith("models/"):
+            model_name = model_name.split("/", 1)[1]
+        req_model = f"models/{model_name}"
+
         # Gemini API endpoint (v1beta)
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:batchEmbedContents?key={self.api_key}"
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:batchEmbedContents?key={self.api_key}"
 
         # Each item: {content: {parts:[{text:"..."}]}}
         payload = {
             "requests": [
                 {
+                    "model": req_model,
                     "content": {"parts": [{"text": t}]},
                     "outputDimensionality": self.output_dim,
                 }
