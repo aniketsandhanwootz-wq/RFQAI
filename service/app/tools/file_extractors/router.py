@@ -24,7 +24,7 @@ class Extracted:
 
 _IMAGE_EXTS = {
     ".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff",
-    ".gif", ".jfif", ".pjpeg", ".pjp"
+    ".gif", ".jfif", ".pjpeg", ".pjp", ".heic", ".heif", ".avif", ".ico", ".svg"
 }
 
 
@@ -56,17 +56,36 @@ def _is_image(filename: str, mime: str) -> bool:
     return False
 
 
+def _sniff_image_mime(content: bytes) -> Optional[str]:
+    # Keep this lightweight and deterministic for empty/missing MIME cases.
+    sig = content[:16]
+    if sig.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if sig.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if sig.startswith(b"GIF87a") or sig.startswith(b"GIF89a"):
+        return "image/gif"
+    if sig.startswith(b"BM"):
+        return "image/bmp"
+    if len(sig) >= 12 and sig[:4] == b"RIFF" and sig[8:12] == b"WEBP":
+        return "image/webp"
+    if sig.startswith(b"II*\x00") or sig.startswith(b"MM\x00*"):
+        return "image/tiff"
+    return None
+
+
 def route_extract(
     *,
     filename: str,
     mime: str,
     content: bytes,
     vision: Optional[GeminiVision],
-    docai: Optional[DocumentAIClient],
     limits: dict,
+    docai: Optional[DocumentAIClient] = None,
 ) -> Optional[Extracted]:
     fn = _norm_filename(filename).lower()
     m = _guess_mime(filename, mime)
+    sniffed_image_mime = _sniff_image_mime(content) if not m else None
 
     # Skip Google native docs (need export flow; safe skip)
     if "application/vnd.google-apps" in m:
@@ -93,8 +112,8 @@ def route_extract(
     if fn.endswith(".csv") or m in ("text/csv", "application/csv"):
         return Extracted(text=extract_csv_text(content), mime=m or "text/csv")
 
-    if _is_image(fn, m):
-        use_mime = m if m else "image/png"
+    if _is_image(fn, m) or (not m and sniffed_image_mime):
+        use_mime = m if m else (sniffed_image_mime or "image/png")
         return Extracted(text=extract_image(content, mime=use_mime, vision=vision), mime=use_mime)
 
     if m.startswith("text/") or fn.endswith(".txt"):

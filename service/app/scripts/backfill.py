@@ -1,29 +1,35 @@
-# service/app/scripts/backfill.py
 from __future__ import annotations
 
 import argparse
 import sys
 from pathlib import Path
-from typing import Any, Dict, Optional
 
 ROOT = Path(__file__).resolve().parents[3]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from service.app.config import Settings
-from service.app.integrations.glide_client import GlideClient
-from service.app.pipeline.ingest_graph import run_ingest_full_prefetched
+from service.app.pipeline.table_ingest import (
+    ingest_glide_tables,
+    iter_changed_rfq_batches,
+    merge_run_summary,
+    run_rfq_postprocess_from_db,
+)
 from service.app.tools.db_tool import DB, apply_migrations, ping
 
 
-def _row_id(row: Dict[str, Any]) -> Optional[str]:
-    return row.get("rowID") or row.get("RowID") or row.get("id")
-
-
 def main() -> int:
-    ap = argparse.ArgumentParser(description="RFQAI backfill (FULL pipeline).")
-    ap.add_argument("--limit", type=int, default=0, help="Limit RFQs to first N (0 = all)")
-    ap.add_argument("--migrate", action="store_true", help="Apply migrations before running")
+    ap = argparse.ArgumentParser(
+        description=(
+            "RFQAI Glide ingestion (table-by-table, page-by-page) with optional "
+            "post-table files/vectors processing in RFQ batches."
+        )
+    )
+    ap.add_argument("--mode", choices=["backfill", "cron"], default="backfill")
+    ap.add_argument("--rfq_batch_size", type=int, default=200, help="Batch size for changed RFQ post-processing")
+    ap.add_argument("--no_files", action="store_true", help="Skip file crawling and vectors stage")
+    ap.add_argument("--limit", type=int, default=0, help="Optional cap on changed RFQs processed for files stage")
+    ap.add_argument("--migrate", action="store_true", help="Apply SQL migrations before running")
     args = ap.parse_args()
 
     settings = Settings()
@@ -34,27 +40,61 @@ def main() -> int:
         apply_migrations(db, ROOT / "packages" / "db" / "migrations")
     ping(db)
 
-    # Minimum calls: fetch tables once, then loop RFQs.
-    glide = GlideClient(settings)
-    tables = glide.fetch_all_4_tables()
-    rfqs = tables["all_rfq"]
+    # Minimal Glide API calls under Glide limitations:
+    # one paginated scan per table (all_rfq -> all_products -> queries -> supplier_shares).
+    try:
+        result = ingest_glide_tables(settings, mode=args.mode)
+    except Exception as e:
+        print(f"[FAIL] table ingestion failed: {e}")
+        return 2
 
-    rfq_ids = [rid for rid in (_row_id(r) for r in rfqs) if rid]
-    if args.limit and args.limit > 0:
-        rfq_ids = rfq_ids[: args.limit]
+    print(f"[OK] run_id={result.run_id} mode={result.mode} changed_rfq_count={result.changed_rfq_count}")
+    for key, p in result.table_progress.items():
+        print(
+            f"  - {key}: pages={p.pages} rows_seen={p.rows_seen} "
+            f"rows_changed={p.rows_changed} rows_unchanged={p.rows_unchanged} rows_skipped={p.rows_skipped}"
+        )
+
+    if args.no_files:
+        return 0
 
     ok = 0
     fail = 0
-    for rfq_id in rfq_ids:
-        st = run_ingest_full_prefetched(rfq_id, settings, prefetched_tables=tables)
-        if st.errors:
-            fail += 1
-            print(f"[FAIL] rfq_id={rfq_id} errors={st.errors[:2]}")
-        else:
-            ok += 1
-            print(f"[OK] rfq_id={rfq_id} products={len(st.products_rows)} queries={len(st.queries_rows)} chunks={len(st.chunks)}")
 
-    print(f"[DONE] ok={ok} fail={fail} total={ok+fail}")
+    for batch in iter_changed_rfq_batches(
+        db,
+        result.run_id,
+        batch_size=args.rfq_batch_size,
+        limit=args.limit,
+    ):
+        for rfq_id in batch:
+            st = run_rfq_postprocess_from_db(rfq_id, settings)
+            if st.errors:
+                fail += 1
+                print(f"[FAIL] rfq_id={rfq_id} errors={st.errors[:2]}")
+                continue
+
+            ok += 1
+            print(
+                f"[OK] rfq_id={rfq_id} products={len(st.products_rows)} "
+                f"queries={len(st.queries_rows)} docs={len(st.docs)} chunks={len(st.chunks)}"
+            )
+
+    merge_run_summary(
+        db,
+        result.run_id,
+        {
+            "files_stage": {
+                "processed_ok": ok,
+                "processed_failed": fail,
+                "batch_size": int(args.rfq_batch_size),
+                "limit": int(args.limit),
+                "skipped": bool(args.no_files),
+            }
+        },
+    )
+
+    print(f"[DONE] run_id={result.run_id} files_ok={ok} files_fail={fail}")
     return 0 if fail == 0 else 2
 
 

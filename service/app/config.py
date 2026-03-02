@@ -36,7 +36,8 @@ class Settings(BaseSettings):
     # ---- Glide (Phase 2) ----
     glide_api_key: str = Field("", alias="GLIDE_API_KEY")
     glide_app_id: str = Field("", alias="GLIDE_APP_ID")
-    glide_max_rows_per_call: int = Field(10000, alias="GLIDE_MAX_ROWS_PER_CALL")
+    # Conservative default; can be raised via env if needed.
+    glide_max_rows_per_call: int = Field(1000, alias="GLIDE_MAX_ROWS_PER_CALL")
     # ---- Drive (Phase 3) ----
     gdrive_sa_json_path: str = Field("", alias="GDRIVE_SA_JSON_PATH")
     # ---- Document AI (PDF OCR) ----

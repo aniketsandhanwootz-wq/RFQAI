@@ -25,6 +25,7 @@ schema_files = [
     "packages/db/migrations/001_extensions.sql",
     "packages/db/migrations/002_rfq_schema.sql",
     "packages/db/migrations/003_indexes.sql",
+    "packages/db/migrations/004_incremental_ingest.sql",
 ]
 
 for schema_file in schema_files:
@@ -179,7 +180,7 @@ print("📋 INGESTION PRE-REQUISITES CHECKLIST")
 print("=" * 80)
 
 checklist = [
-    ("✅", "Database schema migrations available (001, 002, 003)"),
+    ("✅", "Database schema migrations available (001, 002, 003, 004)"),
     ("✅", "Glide CRM configuration loaded"),
     ("✅", "All file extractors working (PDF, XLSX, CSV, PPTX, DOCX, Image)"),
     ("✅", "Ingestion pipeline fully built (8 nodes + state classes)"),
@@ -212,6 +213,7 @@ if checks_failed == 0:
     print("     psql -U postgres -d rfqai -f packages/db/migrations/001_extensions.sql")
     print("     psql -U postgres -d rfqai -f packages/db/migrations/002_rfq_schema.sql")
     print("     psql -U postgres -d rfqai -f packages/db/migrations/003_indexes.sql")
+    print("     psql -U postgres -d rfqai -f packages/db/migrations/004_incremental_ingest.sql")
     print("  3. Configure .env with:")
     print("     - DATABASE_URL (PostgreSQL connection)")
     print("     - GEMINI_API_KEY (for embeddings)")

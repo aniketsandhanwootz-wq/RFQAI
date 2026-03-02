@@ -1,7 +1,8 @@
 # service/app/pipeline/ingest_graph.py
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from dataclasses import fields
+from typing import Any, Dict, List, Mapping
 
 import yaml
 from langgraph.graph import StateGraph, END
@@ -28,6 +29,25 @@ def _load_glide_cfg(path: str = "packages/contracts/glide_tables.yaml") -> Dict[
     with open(path, "r", encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
     return cfg["tables"]
+
+
+def _coerce_ingest_state(raw: Any, seed: IngestState) -> IngestState:
+    """
+    LangGraph may return AddableValuesDict (mapping) instead of IngestState.
+    Normalize output so callers can safely use attribute access.
+    """
+    if isinstance(raw, IngestState):
+        return raw
+
+    if isinstance(raw, Mapping):
+        allowed = {f.name for f in fields(IngestState)}
+        payload = {k: v for k, v in raw.items() if k in allowed}
+        if "rfq_id" not in payload or not payload.get("rfq_id"):
+            payload["rfq_id"] = seed.rfq_id
+        return IngestState(**payload)
+
+    seed.errors.append(f"ingest_graph returned unexpected state type: {type(raw).__name__}")
+    return seed
 
 
 def build_ingest_graph(settings: Settings) -> Any:
@@ -96,8 +116,8 @@ def build_ingest_graph(settings: Settings) -> Any:
 def run_ingest_full(rfq_id: str, settings: Settings) -> IngestState:
     graph = build_ingest_graph(settings)
     state = IngestState(rfq_id=rfq_id)
-    out: IngestState = graph.invoke(state)
-    return out
+    out = graph.invoke(state)
+    return _coerce_ingest_state(out, state)
 
 
 def run_ingest_full_prefetched(
@@ -141,5 +161,5 @@ def run_ingest_full_prefetched(
     # Now run the rest of the graph by invoking compiled graph with seeded state.
     # Because load_glide_node is first node, we will just call run_ingest_full on a graph variant later.
     # Minimal: call build_ingest_graph but override load_glide behavior by already having rfq_row.
-    out: IngestState = graph.invoke(st)
-    return out
+    out = graph.invoke(st)
+    return _coerce_ingest_state(out, st)

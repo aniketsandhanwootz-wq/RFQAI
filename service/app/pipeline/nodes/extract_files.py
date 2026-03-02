@@ -251,17 +251,38 @@ def extract_files_node(
                     continue
 
                 if not content:
+                    _upsert_file_row(
+                        db=db,
+                        rfq_id=state.rfq_id,
+                        product_id=product_id,
+                        query_id=query_id,
+                        source_kind=source_kind,
+                        root_url=url,
+                        provider="gdrive",
+                        provider_id=it.provider_id,
+                        is_folder=False,
+                        parent_provider_id=it.parent_provider_id,
+                        path=it.path or "",
+                        name=it.name or "",
+                        mime=it.mime or "",
+                        size_bytes=it.size_bytes,
+                        modified_at=it.modified_at,
+                        checksum_sha256=None,
+                        fetch_status="FAILED",
+                        parse_status="SKIPPED",
+                        error="empty content",
+                    )
                     continue
 
                 checksum = _sha256(content)
 
                 extracted = route_extract(
-                    filename=fr.filename,
-                    mime=fr.content_type,
-                    content=fr.content,
+                    filename=it.name or "",
+                    mime=it.mime or "",
+                    content=content,
                     vision=vision,
-                    docai=docai,
                     limits=limits,
+                    docai=docai,
                 )
 
                 # Update file row status with checksum even if text extraction returns empty
@@ -349,6 +370,7 @@ def extract_files_node(
             content=fr.content,
             vision=vision,
             limits=limits,
+            docai=docai,
         )
 
         _upsert_file_row(

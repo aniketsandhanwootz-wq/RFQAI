@@ -2,10 +2,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List, Optional, Tuple
+from typing import Any, List
 
-# google-cloud-documentai
-from google.cloud import documentai  # type: ignore
+try:
+    # google-cloud-documentai
+    from google.cloud import documentai  # type: ignore
+except Exception:  # pragma: no cover - optional dependency at runtime
+    documentai = None  # type: ignore[assignment]
 
 
 @dataclass(frozen=True)
@@ -26,10 +29,21 @@ class DocumentAIClient:
         self.cfg = cfg
 
     def enabled(self) -> bool:
-        return bool(self.cfg.project_id and self.cfg.location and self.cfg.processor_id)
+        return bool(
+            documentai is not None
+            and self.cfg.project_id
+            and self.cfg.location
+            and self.cfg.processor_id
+        )
+
+    @staticmethod
+    def _client() -> Any:
+        if documentai is None:
+            raise RuntimeError("google-cloud-documentai is not installed")
+        return documentai.DocumentProcessorServiceClient()
 
     def _processor_name(self) -> str:
-        client = documentai.DocumentProcessorServiceClient()
+        client = self._client()
         if self.cfg.processor_version:
             return client.processor_version_path(
                 self.cfg.project_id, self.cfg.location, self.cfg.processor_id, self.cfg.processor_version
@@ -37,7 +51,7 @@ class DocumentAIClient:
         return client.processor_path(self.cfg.project_id, self.cfg.location, self.cfg.processor_id)
 
     @staticmethod
-    def _page_text(doc: documentai.Document, page: documentai.Document.Page) -> str:
+    def _page_text(doc: Any, page: Any) -> str:
         """
         Extract page text using text anchors into doc.text.
         """
@@ -61,7 +75,10 @@ class DocumentAIClient:
         if not self.enabled():
             return []
 
-        client = documentai.DocumentProcessorServiceClient()
+        if documentai is None:
+            return []
+
+        client = self._client()
         name = self._processor_name()
 
         raw_document = documentai.RawDocument(content=pdf_bytes, mime_type=mime)
