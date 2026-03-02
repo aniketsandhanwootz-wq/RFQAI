@@ -36,11 +36,14 @@ class Settings(BaseSettings):
     # ---- Glide (Phase 2) ----
     glide_api_key: str = Field("", alias="GLIDE_API_KEY")
     glide_app_id: str = Field("", alias="GLIDE_APP_ID")
-    glide_max_rows_per_call: int = Field(5000, alias="GLIDE_MAX_ROWS_PER_CALL")  # tune after testing
-
+    glide_max_rows_per_call: int = Field(10000, alias="GLIDE_MAX_ROWS_PER_CALL")
     # ---- Drive (Phase 3) ----
     gdrive_sa_json_path: str = Field("", alias="GDRIVE_SA_JSON_PATH")
-
+    # ---- Document AI (PDF OCR) ----
+    docai_project_id: str = Field("", alias="DOCAI_PROJECT_ID")
+    docai_location: str = Field("", alias="DOCAI_LOCATION")
+    docai_processor_id: str = Field("", alias="DOCAI_PROCESSOR_ID")
+    docai_processor_version: str = Field("", alias="DOCAI_PROCESSOR_VERSION")
     # ---- Logging ----
     log_level: str = Field("INFO", alias="LOG_LEVEL")
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 import hashlib
 import os
-
+from ...integrations.document_ai_client import DocumentAIClient, DocAIConfig
 from ...config import Settings
 from ...integrations.drive_client import DriveClient
 from ...integrations.fetch_client import FetchClient, FetchResult
@@ -125,12 +125,25 @@ def extract_files_node(
     limits = {
         "MAX_FILE_MB": int(os.getenv("MAX_FILE_MB", str(settings.ingest_file_max_mb))),
         "PDF_MAX_PAGES": int(os.getenv("PDF_MAX_PAGES", "120")),
-        "PDF_VISION_MAX_PAGES": int(os.getenv("PDF_VISION_MAX_PAGES", "12")),
-        "PDF_VISION_TEXT_THRESHOLD": int(os.getenv("PDF_VISION_TEXT_THRESHOLD", "40")),
+        "PDF_TEXT_THRESHOLD": int(os.getenv("PDF_TEXT_THRESHOLD", "40")),
+        "PDF_DOCAI_MAX_PAGES": int(os.getenv("PDF_DOCAI_MAX_PAGES", "200")),
         "XLSX_VISION_MAX_IMAGES": int(os.getenv("XLSX_VISION_MAX_IMAGES", "10")),
+        "XLSX_MAX_CELL_LINES": int(os.getenv("XLSX_MAX_CELL_LINES", "5000")),
         "PPTX_VISION_MAX_IMAGES": int(os.getenv("PPTX_VISION_MAX_IMAGES", "10")),
         "DOCX_VISION_MAX_IMAGES": int(os.getenv("DOCX_VISION_MAX_IMAGES", "10")),
     }
+
+
+    docai = None
+    if os.getenv("DOCAI_PROJECT_ID") and os.getenv("DOCAI_LOCATION") and os.getenv("DOCAI_PROCESSOR_ID"):
+        docai = DocumentAIClient(
+            DocAIConfig(
+                project_id=os.getenv("DOCAI_PROJECT_ID", ""),
+                location=os.getenv("DOCAI_LOCATION", ""),
+                processor_id=os.getenv("DOCAI_PROCESSOR_ID", ""),
+                processor_version=os.getenv("DOCAI_PROCESSOR_VERSION", ""),
+            )
+        )
 
     vision = GeminiVision(
         api_key=settings.gemini_api_key,
@@ -243,10 +256,11 @@ def extract_files_node(
                 checksum = _sha256(content)
 
                 extracted = route_extract(
-                    filename=it.name,
-                    mime=it.mime,
-                    content=content,
+                    filename=fr.filename,
+                    mime=fr.content_type,
+                    content=fr.content,
                     vision=vision,
+                    docai=docai,
                     limits=limits,
                 )
 

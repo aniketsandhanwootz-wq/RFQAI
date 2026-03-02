@@ -46,7 +46,7 @@ def main() -> int:
     ok = 0
     fail = 0
     for rfq_id in rfq_ids:
-        st = st = run_ingest_full_prefetched(rfq_id, settings, prefetched_tables=tables)
+        st = run_ingest_full_prefetched(rfq_id, settings, prefetched_tables=tables)
         if st.errors:
             fail += 1
             print(f"[FAIL] rfq_id={rfq_id} errors={st.errors[:2]}")

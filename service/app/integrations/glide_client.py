@@ -1,8 +1,7 @@
-# service/app/integrations/glide_client.py
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 import json
 import time
 
@@ -27,9 +26,17 @@ class GlideClient:
       POST https://api.glideapp.io/api/function/queryTables
 
     We NEVER call mutateTables (write).
+
+    Pagination in Glide commonly uses:
+      - response: {"rows": [...], "next": "CONTINUATION_TOKEN"}
+      - request:  {"startAt": "CONTINUATION_TOKEN"}  (inside the query object)
+
+    Some responses also use cursor/nextCursor.
+    This client supports BOTH styles.
     """
 
     BASE_URL = "https://api.glideapp.io/api/function/queryTables"
+    HARD_MAX_LIMIT = 10000  # Glide max per response (practical cap)
 
     def __init__(self, settings: Settings, contracts_path: str = "packages/contracts/glide_tables.yaml"):
         self.settings = settings
@@ -43,7 +50,6 @@ class GlideClient:
         if self.settings.glide_app_id and self.settings.glide_app_id != self.app_id:
             self.app_id = self.settings.glide_app_id
 
-        # Hard guard: prevent accidental use if someone sets a mutate URL later
         if "mutate" in self.BASE_URL.lower():
             raise RuntimeError("GlideClient misconfigured: mutate endpoint detected (write).")
 
@@ -57,9 +63,10 @@ class GlideClient:
             "Authorization": f"Bearer {self.settings.glide_api_key}",
         }
 
-    def _post_with_retry(self, payload: Dict[str, Any], *, max_attempts: int = 5) -> Dict[str, Any]:
+    def _post_with_retry(self, payload: Dict[str, Any], *, max_attempts: int = 5) -> Any:
         """
         Retry on transient errors (429/5xx).
+        Return parsed JSON (can be dict or list depending on Glide).
         """
         for attempt in range(1, max_attempts + 1):
             r = self._session.post(self.BASE_URL, headers=self._headers(), data=json.dumps(payload), timeout=60)
@@ -67,7 +74,6 @@ class GlideClient:
             if r.status_code < 400:
                 return r.json()
 
-            # Retry only for transient issues
             if r.status_code in (429, 500, 502, 503, 504):
                 sleep_s = min(2.0 * attempt, 8.0)
                 time.sleep(sleep_s)
@@ -77,43 +83,81 @@ class GlideClient:
 
         raise RuntimeError("Glide queryTables failed after retries.")
 
-    def fetch_table_all_rows(self, table_name: str, *, max_pages: int = 200) -> List[Dict[str, Any]]:
+    @staticmethod
+    def _normalize_top(data: Any) -> Dict[str, Any]:
         """
-        Fetch all rows from a Glide table with pagination.
+        Glide sometimes returns list at top-level.
+        Normalize to a dict-like object (best effort).
+        """
+        if isinstance(data, list):
+            return data[0] if data else {}
+        if isinstance(data, dict):
+            return data
+        return {}
 
-        We keep Glide calls minimal by using a high limit per page.
+    @staticmethod
+    def _extract_rows_and_token(data0: Dict[str, Any]) -> Tuple[List[Dict[str, Any]], Optional[str], Optional[str]]:
         """
-        limit = int(self.settings.glide_max_rows_per_call or 5000)
+        Returns: (rows, next_token, cursor_token)
+        Supports:
+          - {"rows":[...], "next":"..."}   (Glide continuation)
+          - {"rows":[...], "cursor":"..."} (cursor style)
+          - {"results":[{"rows":[...], "next":"..."}]}
+          - {"results":[{"rows":[...], "cursor":"..."}]}
+        """
+        # results wrapper
+        if "results" in data0 and isinstance(data0.get("results"), list) and data0["results"]:
+            res0 = data0["results"][0] or {}
+            rows = res0.get("rows") or []
+            nxt = res0.get("next")
+            cur = res0.get("cursor") or res0.get("nextCursor")
+            return (rows if isinstance(rows, list) else [], nxt, cur)
+
+        rows = data0.get("rows") or []
+        nxt = data0.get("next")
+        cur = data0.get("cursor") or data0.get("nextCursor")
+        return (rows if isinstance(rows, list) else [], nxt, cur)
+
+    def fetch_table_all_rows(self, table_name: str, *, max_pages: int = 1000) -> List[Dict[str, Any]]:
+        """
+        Fetches all rows from a Glide table with pagination.
+        Cost control:
+          - uses the highest allowed limit (clamped to 10000)
+          - paginates only when Glide returns next/cursor tokens
+        """
+        want = int(self.settings.glide_max_rows_per_call or self.HARD_MAX_LIMIT)
+        limit = max(1, min(want, self.HARD_MAX_LIMIT))
+
         out: List[Dict[str, Any]] = []
 
-        cursor: Optional[str] = None
+        start_at: Optional[str] = None     # Glide continuation token ("next" -> "startAt")
+        cursor: Optional[str] = None       # Alternate cursor style
+
         for _ in range(max_pages):
-            payload: Dict[str, Any] = {
-                "appID": self.app_id,
-                "queries": [{"tableName": table_name, "limit": limit}],
-            }
+            q: Dict[str, Any] = {"tableName": table_name, "limit": limit}
+            if start_at:
+                q["startAt"] = start_at
             if cursor:
-                payload["queries"][0]["cursor"] = cursor
+                q["cursor"] = cursor
 
-            data = self._post_with_retry(payload)
+            payload: Dict[str, Any] = {"appID": self.app_id, "queries": [q]}
+            raw = self._post_with_retry(payload)
+            data0 = self._normalize_top(raw)
 
-            rows = None
-            next_cursor = None
-
-            if isinstance(data, dict) and "results" in data:
-                res0 = (data.get("results") or [{}])[0] or {}
-                rows = res0.get("rows")
-                next_cursor = res0.get("cursor") or res0.get("nextCursor")
-            else:
-                rows = data.get("rows")
-                next_cursor = data.get("cursor") or data.get("nextCursor")
-
+            rows, nxt, cur = self._extract_rows_and_token(data0)
             if not rows:
                 break
 
             out.extend(rows)
-            cursor = next_cursor
-            if not cursor:
+
+            # Prefer Glide official continuation if present
+            if nxt:
+                start_at = str(nxt)
+                cursor = None
+            elif cur:
+                cursor = str(cur)
+                start_at = None
+            else:
                 break
 
             time.sleep(0.05)
@@ -122,7 +166,7 @@ class GlideClient:
 
     def fetch_all_4_tables(self) -> Dict[str, List[Dict[str, Any]]]:
         """
-        Exactly 4 table fetches per run.
+        Exactly 4 table fetches per run (but each may paginate internally).
         """
         return {
             "all_rfq": self.fetch_table_all_rows(self.tables["all_rfq"]["table_name"]),

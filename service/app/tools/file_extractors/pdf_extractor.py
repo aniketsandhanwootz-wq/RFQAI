@@ -1,104 +1,74 @@
+# service/app/tools/file_extractors/pdf_extractor.py
 from __future__ import annotations
 
-from typing import Optional, List
+from typing import List, Optional
 
-from ..vision_tool import GeminiVision, load_prompt
-
-PROMPT_PATH = "packages/prompts/vision_extract_rich.md"
+from ...integrations.document_ai_client import DocumentAIClient
 
 
-def _pick_pages_for_vision_from_candidates(candidates: List[int], max_pages: int) -> List[int]:
+def extract_pdf(
+    content: bytes,
+    *,
+    limits: dict,
+    docai: Optional[DocumentAIClient],
+) -> str:
     """
-    Deterministic sampling across candidate pages.
+    Policy:
+      - NO Gemini Vision for PDFs.
+      - Use PyMuPDF text extraction per page.
+      - If a page has very low extracted text, run Document AI OCR (once per PDF) and
+        substitute OCR text for those low-text pages (mixed PDFs supported).
     """
-    if not candidates:
-        return []
-    if len(candidates) <= max_pages:
-        return candidates
-
-    # always include first, middle, last-ish candidates
-    picks = []
-    picks.append(candidates[0])
-    picks.append(candidates[len(candidates) // 2])
-    picks.append(candidates[-1])
-
-    # fill remaining evenly
-    remaining = max_pages - len(set(picks))
-    if remaining > 0:
-        step = max(1, len(candidates) // (remaining + 1))
-        i = step
-        while len(set(picks)) < max_pages and i < len(candidates) - 1:
-            picks.append(candidates[i])
-            i += step
-
-    return sorted(set(picks))[:max_pages]
-
-
-def _pick_pages_for_vision(n_pages: int, max_pages: int) -> List[int]:
-    if n_pages <= 0:
-        return []
-    if n_pages <= max_pages:
-        return list(range(n_pages))
-
-    picks = [0, 1, 2, n_pages - 2, n_pages - 1]
-    remaining = max_pages - len(set(picks))
-    if remaining > 0:
-        step = max(1, n_pages // (remaining + 1))
-        i = step
-        while len(set(picks)) < max_pages and i < n_pages - 2:
-            picks.append(i)
-            i += step
-    return sorted(set([p for p in picks if 0 <= p < n_pages]))[:max_pages]
-
-
-def extract_pdf(content: bytes, *, vision: Optional[GeminiVision], limits: dict) -> str:
     try:
         import fitz  # PyMuPDF
     except Exception:
         return ""
 
     pdf_max_pages = int(limits.get("PDF_MAX_PAGES", 120))
-    vision_max_pages = int(limits.get("PDF_VISION_MAX_PAGES", 12))
-    text_threshold = int(limits.get("PDF_VISION_TEXT_THRESHOLD", 40))
+    text_threshold = int(limits.get("PDF_TEXT_THRESHOLD", 40))
 
-    prompt = load_prompt(PROMPT_PATH)
+    # DocAI controls
+    docai_max_pages = int(limits.get("PDF_DOCAI_MAX_PAGES", 200))  # allow bigger than PDF_MAX_PAGES if you want
+    docai_enabled = bool(docai and docai.enabled())
 
     doc = fitz.open(stream=content, filetype="pdf")
     n_total = len(doc)
 
+    n_proc = min(n_total, pdf_max_pages)
+    suffix = ""
     if n_total > pdf_max_pages:
-        n_proc = pdf_max_pages
         suffix = f"\n\n[SKIPPED_PAGES] total_pages={n_total} processed_pages={n_proc}"
-    else:
-        n_proc = n_total
-        suffix = ""
 
-    parts = []
-    low_text_pages: List[int] = []
+    parts: List[str] = []
+    low_pages: List[int] = []
 
+    # 1) Extract selectable text per page
+    page_texts: List[str] = []
     for i in range(n_proc):
         page = doc[i]
         txt = (page.get_text("text") or "").strip()
-        parts.append(f"\n\n--- PAGE {i+1} TEXT ---\n{txt}")
+        page_texts.append(txt)
         if len(txt) < text_threshold:
-            low_text_pages.append(i)
+            low_pages.append(i)
 
-    if vision and vision.enabled() and vision_max_pages > 0:
-        if low_text_pages:
-            pages_for_vision = _pick_pages_for_vision_from_candidates(low_text_pages, vision_max_pages)
-        else:
-            pages_for_vision = _pick_pages_for_vision(n_proc, vision_max_pages)
+    # 2) If needed, run DocAI OCR once and map page OCR back
+    ocr_pages: List[str] = []
+    if docai_enabled and low_pages and n_total <= docai_max_pages:
+        try:
+            ocr_pages = docai.ocr_pdf_pages(content)
+        except Exception:
+            ocr_pages = []
 
-        for i in pages_for_vision:
-            try:
-                page = doc[i]
-                pix = page.get_pixmap(dpi=180)
-                img = pix.tobytes("png")
-                vis = vision.analyze_image(prompt=prompt, image_bytes=img, mime="image/png")
-                if vis:
-                    parts.append(f"\n--- PAGE {i+1} VISION ---\n{vis}")
-            except Exception:
-                continue
+    # 3) Merge output
+    for i in range(n_proc):
+        txt = page_texts[i]
+        parts.append(f"\n\n--- PAGE {i+1} TEXT ---\n{txt}")
+
+        # only add OCR when page is low-text and OCR exists
+        if i in low_pages and ocr_pages and i < len(ocr_pages):
+            ocr_txt = (ocr_pages[i] or "").strip()
+            if ocr_txt:
+                parts.append(f"\n--- PAGE {i+1} OCR_DOCAI ---\n{ocr_txt}")
 
     doc.close()
     return ("\n".join(parts).strip() + suffix).strip()

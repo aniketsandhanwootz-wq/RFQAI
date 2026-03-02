@@ -32,3 +32,6 @@ python-docx==1.1.2
 # Google Drive
 google-api-python-client==2.160.0
 google-auth==2.38.0
+
+# Google Document AI (PDF OCR)
+google-cloud-documentai>=2.20.0,<3.0.0

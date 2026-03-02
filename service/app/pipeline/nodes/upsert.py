@@ -41,6 +41,18 @@ def _to_ts(v: Any) -> Optional[datetime]:
     except Exception:
         return None
 
+def _to_json_list(v: Any) -> list:
+    if v is None:
+        return []
+    if isinstance(v, list):
+        return v
+    # Glide may give comma-separated string or single string
+    s = str(v).strip()
+    if not s:
+        return []
+    if "," in s:
+        return [x.strip() for x in s.split(",") if x.strip()]
+    return [s]
 
 def upsert_entities_node(state: IngestState, db: DB, glide_tables_cfg: Dict[str, Any]) -> IngestState:
     """
@@ -129,7 +141,7 @@ def upsert_entities_node(state: IngestState, db: DB, glide_tables_cfg: Dict[str,
                 "created_date": _to_ts(rfq.get(rfq_cols["rfq_created_date"])),
                 "created_by": rfq.get(rfq_cols["created_by"]),
                 "sales_por": rfq.get(rfq_cols["sales_por"]),
-                "shared_members": rfq.get(rfq_cols["shared_members"]) or [],
+                "shared_members": _to_json_list(rfq.get(rfq_cols["shared_members"])),
                 "rfq_poc": rfq.get(rfq_cols["rfq_poc"]),
                 "last_by": rfq.get(rfq_cols["last_status_updated_by"]),
                 "last_at": _to_ts(rfq.get(rfq_cols["last_status_updated_at"])),

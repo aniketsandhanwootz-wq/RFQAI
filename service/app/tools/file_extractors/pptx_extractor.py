@@ -1,3 +1,4 @@
+# service/app/tools/file_extractors/pptx_extractor.py
 from __future__ import annotations
 
 from typing import Optional
@@ -21,7 +22,6 @@ def extract_pptx(content: bytes, *, vision: Optional[GeminiVision], limits: dict
     parts = []
 
     for si, slide in enumerate(prs.slides, start=1):
-        # Text
         texts = []
         for shape in slide.shapes:
             try:
@@ -33,15 +33,13 @@ def extract_pptx(content: bytes, *, vision: Optional[GeminiVision], limits: dict
                 pass
         parts.append(f"\n\n--- SLIDE {si} TEXT ---\n" + ("\n".join(texts) if texts else ""))
 
-        # Images
         if vision and vision.enabled() and max_imgs > 0:
             img_count = 0
             for shape in slide.shapes:
                 if img_count >= max_imgs:
                     break
                 try:
-                    # picture type is 13 in python-pptx
-                    if shape.shape_type == 13:
+                    if shape.shape_type == 13:  # picture
                         img_count += 1
                         blob = shape.image.blob
                         mime = shape.image.content_type or "image/png"

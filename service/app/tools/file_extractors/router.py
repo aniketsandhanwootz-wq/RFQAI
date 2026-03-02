@@ -1,9 +1,11 @@
+# service/app/tools/file_extractors/router.py
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Optional
 import mimetypes
 
+from ...integrations.document_ai_client import DocumentAIClient
 from ..vision_tool import GeminiVision
 
 from .pdf_extractor import extract_pdf
@@ -60,6 +62,7 @@ def route_extract(
     mime: str,
     content: bytes,
     vision: Optional[GeminiVision],
+    docai: Optional[DocumentAIClient],
     limits: dict,
 ) -> Optional[Extracted]:
     fn = _norm_filename(filename).lower()
@@ -70,7 +73,10 @@ def route_extract(
         return None
 
     if fn.endswith(".pdf") or m == "application/pdf":
-        return Extracted(text=extract_pdf(content, vision=vision, limits=limits), mime=m or "application/pdf")
+        return Extracted(
+            text=extract_pdf(content, limits=limits, docai=docai),
+            mime=m or "application/pdf",
+        )
 
     if fn.endswith(".xlsx") or fn.endswith(".xls") or m in (
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
