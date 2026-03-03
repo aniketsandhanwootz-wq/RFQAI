@@ -11,7 +11,7 @@ PyYAML==6.0.2
 python-dateutil==2.9.0.post0
 
 # LangChain ecosystem (compatible set)
-langgraph==0.2.62
+langgraph==1.0.10
 langchain-core==0.3.83
 langchain-text-splitters==0.3.11
 
