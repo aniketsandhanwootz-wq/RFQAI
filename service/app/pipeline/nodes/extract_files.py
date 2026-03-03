@@ -142,6 +142,7 @@ def extract_files_node(
                 location=os.getenv("DOCAI_LOCATION", ""),
                 processor_id=os.getenv("DOCAI_PROCESSOR_ID", ""),
                 processor_version=os.getenv("DOCAI_PROCESSOR_VERSION", ""),
+                credentials=(os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "") or settings.gdrive_sa_json_path),
             )
         )
 

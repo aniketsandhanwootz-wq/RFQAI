@@ -3,6 +3,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
+import base64
+import json
+from pathlib import Path
 import re
 from datetime import datetime
 
@@ -63,13 +66,55 @@ class DriveClient:
     def enabled(self) -> bool:
         return bool(self.sa_json_path)
 
+    @staticmethod
+    def _safe_path_exists(p: str) -> bool:
+        if not p:
+            return False
+        try:
+            return Path(p).exists()
+        except Exception:
+            return False
+
+    @staticmethod
+    def _parse_service_account_info(src: str) -> Optional[Dict]:
+        s = (src or "").strip()
+        if not s:
+            return None
+
+        # Raw JSON string
+        try:
+            data = json.loads(s)
+            if isinstance(data, dict) and data.get("type") == "service_account":
+                return data
+        except Exception:
+            pass
+
+        # Base64 encoded JSON
+        try:
+            decoded = base64.b64decode(s, validate=False).decode("utf-8")
+            data = json.loads(decoded)
+            if isinstance(data, dict) and data.get("type") == "service_account":
+                return data
+        except Exception:
+            pass
+
+        return None
+
     def _service(self):
         if self._svc is not None:
             return self._svc
-        creds = Credentials.from_service_account_file(
-            self.sa_json_path,
-            scopes=["https://www.googleapis.com/auth/drive.readonly"],
-        )
+        scopes = ["https://www.googleapis.com/auth/drive.readonly"]
+
+        if self._safe_path_exists(self.sa_json_path):
+            creds = Credentials.from_service_account_file(self.sa_json_path, scopes=scopes)
+        else:
+            info = self._parse_service_account_info(self.sa_json_path)
+            if not info:
+                raise RuntimeError(
+                    "GDRIVE_SA_JSON_PATH must be a valid file path, raw service-account JSON, or base64 JSON."
+                )
+            creds = Credentials.from_service_account_info(info, scopes=scopes)
+
         self._svc = build("drive", "v3", credentials=creds, cache_discovery=False)
         return self._svc
 

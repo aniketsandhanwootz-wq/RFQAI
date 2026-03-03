@@ -3,6 +3,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any, List
+import base64
+import json
+import os
+from pathlib import Path
+
+from google.oauth2.service_account import Credentials as SACredentials
+from google.api_core.client_options import ClientOptions
 
 try:
     # google-cloud-documentai
@@ -17,6 +24,8 @@ class DocAIConfig:
     location: str
     processor_id: str
     processor_version: str = ""  # optional
+    # Optional credentials source: file path, raw JSON, or base64 JSON.
+    credentials: str = ""
 
 
 class DocumentAIClient:
@@ -37,10 +46,64 @@ class DocumentAIClient:
         )
 
     @staticmethod
-    def _client() -> Any:
+    def _safe_path_exists(p: str) -> bool:
+        if not p:
+            return False
+        try:
+            return Path(p).exists()
+        except Exception:
+            return False
+
+    @staticmethod
+    def _parse_service_account_info(src: str) -> Any:
+        s = (src or "").strip()
+        if not s:
+            return None
+
+        # Raw JSON string
+        try:
+            data = json.loads(s)
+            if isinstance(data, dict) and data.get("type") == "service_account":
+                return data
+        except Exception:
+            pass
+
+        # Base64 encoded JSON
+        try:
+            decoded = base64.b64decode(s, validate=False).decode("utf-8")
+            data = json.loads(decoded)
+            if isinstance(data, dict) and data.get("type") == "service_account":
+                return data
+        except Exception:
+            pass
+
+        return None
+
+    def _client(self) -> Any:
         if documentai is None:
             raise RuntimeError("google-cloud-documentai is not installed")
-        return documentai.DocumentProcessorServiceClient()
+
+        # Priority:
+        # 1) cfg.credentials (path/raw-json/base64)
+        # 2) GOOGLE_APPLICATION_CREDENTIALS env value (path/raw-json/base64)
+        # 3) default ADC resolution by google client libs
+        src = (self.cfg.credentials or "").strip() or (os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "")).strip()
+        endpoint = f"{self.cfg.location}-documentai.googleapis.com" if self.cfg.location else None
+        client_options = ClientOptions(api_endpoint=endpoint) if endpoint else None
+
+        if src:
+            if self._safe_path_exists(src):
+                creds = SACredentials.from_service_account_file(src)
+            else:
+                info = self._parse_service_account_info(src)
+                if not info:
+                    raise RuntimeError(
+                        "DocAI credentials must be a valid file path, raw service-account JSON, or base64 JSON."
+                    )
+                creds = SACredentials.from_service_account_info(info)
+            return documentai.DocumentProcessorServiceClient(credentials=creds, client_options=client_options)
+
+        return documentai.DocumentProcessorServiceClient(client_options=client_options)
 
     def _processor_name(self) -> str:
         client = self._client()
