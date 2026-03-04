@@ -68,7 +68,12 @@ def main() -> int:
         limit=args.limit,
     ):
         for rfq_id in batch:
-            st = run_rfq_postprocess_from_db(rfq_id, settings)
+            try:
+                st = run_rfq_postprocess_from_db(rfq_id, settings)
+            except Exception as e:
+                fail += 1
+                print(f"[FAIL] rfq_id={rfq_id} errors={[str(e)[:500]]}")
+                continue
             if st.errors:
                 fail += 1
                 print(f"[FAIL] rfq_id={rfq_id} errors={st.errors[:2]}")

@@ -14,6 +14,7 @@ from .csv_extractor import extract_csv_text
 from .image_extractor import extract_image
 from .pptx_extractor import extract_pptx
 from .docx_extractor import extract_docx
+from .html_extractor import extract_html_text
 
 
 @dataclass(frozen=True)
@@ -112,13 +113,23 @@ def route_extract(
     if fn.endswith(".csv") or m in ("text/csv", "application/csv"):
         return Extracted(text=extract_csv_text(content), mime=m or "text/csv")
 
+    if fn.endswith(".html") or fn.endswith(".htm") or m in ("text/html", "application/xhtml+xml"):
+        return Extracted(text=extract_html_text(content), mime=m or "text/html")
+
+    if fn.endswith(".js") or fn.endswith(".css") or m in ("application/javascript", "text/javascript", "text/css"):
+        return None
+
     if _is_image(fn, m) or (not m and sniffed_image_mime):
         use_mime = m if m else (sniffed_image_mime or "image/png")
         return Extracted(text=extract_image(content, mime=use_mime, vision=vision), mime=use_mime)
 
     if m.startswith("text/") or fn.endswith(".txt"):
         try:
-            return Extracted(text=content.decode("utf-8", errors="ignore"), mime=m or "text/plain")
+            txt = content.decode("utf-8", errors="ignore")
+            lc = txt.lower()
+            if "<html" in lc and "</html>" in lc:
+                txt = extract_html_text(content)
+            return Extracted(text=txt, mime=m or "text/plain")
         except Exception:
             return None
 
