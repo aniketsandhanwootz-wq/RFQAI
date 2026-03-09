@@ -110,7 +110,9 @@ def build_ingest_graph(settings: Settings) -> Any:
     g.add_edge("embed", "upsert_chunks")
     g.add_edge("upsert_chunks", END)
 
-    return g.compile()
+    # Explicitly disable checkpoint persistence/restore.
+    # This keeps execution in-memory for this ingestion graph.
+    return g.compile(checkpointer=None)
 
 
 def run_ingest_full(rfq_id: str, settings: Settings) -> IngestState:
