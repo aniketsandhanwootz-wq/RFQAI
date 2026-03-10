@@ -1,6 +1,6 @@
 # Web API
 fastapi==0.133.0
-uvicorn[standard]==0.30.6
+uvicorn[standard]==0.41.0
 
 # Settings / parsing
 pydantic==2.10.6
