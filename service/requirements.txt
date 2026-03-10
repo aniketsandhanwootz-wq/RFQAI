@@ -34,4 +34,4 @@ google-api-python-client==2.191.0
 google-auth==2.48.0
 
 # Google Document AI (PDF OCR)
-google-cloud-documentai>=2.20.0,<3.0.0
+google-cloud-documentai>=2.20.0,<4.0.0
