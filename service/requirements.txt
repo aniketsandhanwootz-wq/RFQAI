@@ -1,5 +1,5 @@
 # Web API
-fastapi==0.133.0
+fastapi==0.135.1
 uvicorn[standard]==0.30.6
 
 # Settings / parsing
